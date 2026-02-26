@@ -446,5 +446,152 @@ namespace MR_Cleaner
 
             this.ActiveControl = null;
         }
+
+        private void metroButton14_Click(object sender, EventArgs e)
+        {
+            try
+            {
+                RegistryKey keyCU = Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Policies\Explorer", true);
+                RegistryKey keyLM = Registry.LocalMachine.OpenSubKey(@"SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\Explorer", true);
+                bool disabled = false;
+                if (keyCU != null)
+                {
+                    object val = keyCU.GetValue("NoControlPanel");
+                    if (val != null && Convert.ToInt32(val) == 1) disabled = true;
+                }
+                if (keyLM != null)
+                {
+                    object val = keyLM.GetValue("NoControlPanel");
+                    if (val != null && Convert.ToInt32(val) == 1) disabled = true;
+                }
+                if (disabled)
+                {
+                    if (keyCU != null) keyCU.DeleteValue("NoControlPanel", false);
+                    if (keyLM != null) keyLM.DeleteValue("NoControlPanel", false);
+                    MetroFramework.MetroMessageBox.Show(this, "Панель управления была отключена. Включено.", "Панель управления исправлена", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                }
+                else
+                {
+                    MetroFramework.MetroMessageBox.Show(this, "Панель управления доступна.", "Проверка панели управления", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                }
+                if (keyCU != null) keyCU.Close();
+                if (keyLM != null) keyLM.Close();
+            }
+            catch (Exception ex)
+            {
+                MetroFramework.MetroMessageBox.Show(this, "Ошибка: " + ex.Message, "Ошибка", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+            this.ActiveControl = null;
+        }
+
+        private void metroButton15_Click(object sender, EventArgs e)
+        {
+            try
+            {
+                RegistryKey keyCU = Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Policies\Explorer", true);
+                RegistryKey keyLM = Registry.LocalMachine.OpenSubKey(@"SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\Explorer", true);
+                bool disabled = false;
+                if (keyCU != null)
+                {
+                    object val = keyCU.GetValue("NoLogoff");
+                    if (val != null && Convert.ToInt32(val) == 1) disabled = true;
+                }
+                if (keyLM != null)
+                {
+                    object val = keyLM.GetValue("NoLogoff");
+                    if (val != null && Convert.ToInt32(val) == 1) disabled = true;
+                }
+                if (disabled)
+                {
+                    if (keyCU != null) keyCU.DeleteValue("NoLogoff", false);
+                    if (keyLM != null) keyLM.DeleteValue("NoLogoff", false);
+                    MetroFramework.MetroMessageBox.Show(this, "Выход из системы был отключён. Включено.", "Logoff исправлен", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                }
+                else
+                {
+                    MetroFramework.MetroMessageBox.Show(this, "Выход из системы доступен.", "Проверка Logoff", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                }
+                if (keyCU != null) keyCU.Close();
+                if (keyLM != null) keyLM.Close();
+            }
+            catch (Exception ex)
+            {
+                MetroFramework.MetroMessageBox.Show(this, "Ошибка: " + ex.Message, "Ошибка", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+            this.ActiveControl = null;
+        }
+
+        private void metroButton16_Click(object sender, EventArgs e)
+        {
+            try
+            {
+                RegistryKey keyCU = Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Policies\Explorer", true);
+                RegistryKey keyLM = Registry.LocalMachine.OpenSubKey(@"SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\Explorer", true);
+                bool disabled = false;
+                if (keyCU != null)
+                {
+                    object val = keyCU.GetValue("NoClose");
+                    if (val != null && Convert.ToInt32(val) == 1) disabled = true;
+                }
+                if (keyLM != null)
+                {
+                    object val = keyLM.GetValue("NoClose");
+                    if (val != null && Convert.ToInt32(val) == 1) disabled = true;
+                }
+                if (disabled)
+                {
+                    if (keyCU != null) keyCU.DeleteValue("NoClose", false);
+                    if (keyLM != null) keyLM.DeleteValue("NoClose", false);
+                    MetroFramework.MetroMessageBox.Show(this, "Выключение ПК через Пуск было отключено. Включено.", "Выключение исправлено", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                }
+                else
+                {
+                    MetroFramework.MetroMessageBox.Show(this, "Выключение ПК через Пуск доступно.", "Проверка выключения", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                }
+                if (keyCU != null) keyCU.Close();
+                if (keyLM != null) keyLM.Close();
+            }
+            catch (Exception ex)
+            {
+                MetroFramework.MetroMessageBox.Show(this, "Ошибка: " + ex.Message, "Ошибка", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+            this.ActiveControl = null;
+        }
+
+        private void metroButton17_Click(object sender, EventArgs e)
+        {
+            try
+            {
+                RegistryKey keyLM = Registry.LocalMachine.OpenSubKey(@"SOFTWARE\Policies\Microsoft\Windows\PowerManagement\Sleep", true);
+                bool disabled = false;
+                if (keyLM != null)
+                {
+                    object valAC = keyLM.GetValue("AllowStandbyStatesAC");
+                    object valDC = keyLM.GetValue("AllowStandbyStatesDC");
+                    if ((valAC != null && Convert.ToInt32(valAC) == 0) ||
+                        (valDC != null && Convert.ToInt32(valDC) == 0))
+                        disabled = true;
+                }
+                if (disabled)
+                {
+                    if (keyLM != null)
+                    {
+                        keyLM.DeleteValue("AllowStandbyStatesAC", false);
+                        keyLM.DeleteValue("AllowStandbyStatesDC", false);
+                    }
+                    MetroFramework.MetroMessageBox.Show(this, "Режим сна был отключён. Включено.", "Сон исправлен", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                }
+                else
+                {
+                    MetroFramework.MetroMessageBox.Show(this, "Режим сна доступен.", "Проверка режима сна", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                }
+                if (keyLM != null) keyLM.Close();
+            }
+            catch (Exception ex)
+            {
+                MetroFramework.MetroMessageBox.Show(this, "Ошибка: " + ex.Message, "Ошибка", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+            this.ActiveControl = null;
+        }
     }
 }
