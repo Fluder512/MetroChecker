@@ -1,7 +1,9 @@
 ﻿using System;
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace MR_Cleaner.Utility
@@ -34,6 +36,12 @@ namespace MR_Cleaner.Utility
 
         [DllImport("kernel32.dll", SetLastError = true)]
         private static extern bool GlobalMemoryStatusEx(ref MEMORYSTATUSEX lpBuffer);
+
+        [DllImport("ntdll.dll")]
+        private static extern uint NtSetSystemInformation(int SystemInformationClass, IntPtr SystemInformation, int SystemInformationLength);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        private static extern bool OpenProcess(uint dwDesiredAccess, bool bInheritHandle, int dwProcessId);
 
         [StructLayout(LayoutKind.Sequential)]
         private struct MEMORYSTATUSEX
@@ -73,6 +81,15 @@ namespace MR_Cleaner.Utility
         private const uint TOKEN_ADJUST_PRIVILEGES = 0x0020;
         private const uint TOKEN_QUERY = 0x0008;
         private const uint SE_PRIVILEGE_ENABLED = 0x0002;
+        private const int SystemMemoryListInformation = 80;
+        private const int MemoryPurgeStandbyList = 4;
+        private const int MemoryFlushModifiedList = 3;
+
+        private static readonly string[] SystemProcessNames =
+        {
+            "system", "idle", "smss", "csrss", "wininit", "winlogon",
+            "services", "lsass", "lsm", "svchost", "dwm"
+        };
 
         private int _trimmedCount;
         private int _failedCount;
@@ -87,14 +104,25 @@ namespace MR_Cleaner.Utility
 
             TrimAllProcesses(includeSystem);
 
-            GC.Collect(GC.MaxGeneration, GCCollectionMode.Forced, true, true);
-            GC.WaitForPendingFinalizers();
-            GC.Collect(GC.MaxGeneration, GCCollectionMode.Forced, true, true);
+            ForceGarbageCollection();
 
             if (cleanFileCache)
                 TryCleanFileCache();
 
+            TryPurgeStandbyList();
+
             _afterMb = GetUsedMemoryMb();
+        }
+
+        private void ForceGarbageCollection()
+        {
+            for (int i = 0; i < 2; i++)
+            {
+                GC.Collect(GC.MaxGeneration, GCCollectionMode.Forced, true, true);
+                GC.WaitForPendingFinalizers();
+            }
+
+            SetProcessWorkingSetSize(GetCurrentProcess(), new IntPtr(-1), new IntPtr(-1));
         }
 
         private void TrimAllProcesses(bool includeSystem)
@@ -109,66 +137,100 @@ namespace MR_Cleaner.Utility
                 return;
             }
 
-            var options = new ParallelOptions { MaxDegreeOfParallelism = Math.Max(1, Environment.ProcessorCount / 2) };
+            int currentPid = Process.GetCurrentProcess().Id;
+            var options = new ParallelOptions
+            {
+                MaxDegreeOfParallelism = Math.Max(1, Environment.ProcessorCount - 1)
+            };
 
             Parallel.ForEach(processes, options, process =>
             {
                 try
                 {
-                    try
-                    {
-                        if (!includeSystem)
-                        {
-                            try
-                            {
-                                if (process.SessionId == 0)
-                                    return;
-                            }
-                            catch
-                            {
-                                return;
-                            }
-                        }
-
-                        string name;
-                        try { name = process.ProcessName?.ToLowerInvariant(); }
-                        catch { name = null; }
-
-                        if (!includeSystem && (name == "system" || name == "idle" || name == "smss" || name == "csrss"))
-                            return;
-
-                        bool success = false;
-                        try
-                        {
-                            success = EmptyWorkingSet(process.Handle);
-                        }
-                        catch
-                        {
-                            success = false;
-                        }
-
-                        if (!success)
-                        {
-                            try
-                            {
-                                SetProcessWorkingSetSize(process.Handle, new IntPtr(-1), new IntPtr(-1));
-                                success = true;
-                            }
-                            catch { }
-                        }
-
-                        if (success)
-                            System.Threading.Interlocked.Increment(ref _trimmedCount);
-                        else
-                            System.Threading.Interlocked.Increment(ref _failedCount);
-                    }
-                    finally
-                    {
-                        try { process.Dispose(); } catch { }
-                    }
+                    TrimProcess(process, includeSystem, currentPid);
                 }
                 catch { }
+                finally
+                {
+                    try { process.Dispose(); } catch { }
+                }
             });
+        }
+
+        private void TrimProcess(Process process, bool includeSystem, int currentPid)
+        {
+            try
+            {
+                if (process.Id == currentPid)
+                    return;
+
+                if (process.Id <= 4)
+                    return;
+
+                if (!includeSystem)
+                {
+                    try
+                    {
+                        if (process.SessionId == 0)
+                            return;
+                    }
+                    catch
+                    {
+                        return;
+                    }
+
+                    string name;
+                    try { name = process.ProcessName?.ToLowerInvariant(); }
+                    catch { return; }
+
+                    if (IsSystemProcess(name))
+                        return;
+                }
+
+                bool success = TryTrimProcess(process.Handle);
+
+                if (success)
+                    Interlocked.Increment(ref _trimmedCount);
+                else
+                    Interlocked.Increment(ref _failedCount);
+            }
+            catch
+            {
+                Interlocked.Increment(ref _failedCount);
+            }
+        }
+
+        private bool TryTrimProcess(IntPtr handle)
+        {
+            try
+            {
+                if (EmptyWorkingSet(handle))
+                    return true;
+            }
+            catch { }
+
+            try
+            {
+                SetProcessWorkingSetSize(handle, new IntPtr(-1), new IntPtr(-1));
+                return true;
+            }
+            catch { }
+
+            return false;
+        }
+
+        private bool IsSystemProcess(string name)
+        {
+            if (string.IsNullOrEmpty(name))
+                return true;
+
+            foreach (var sys in SystemProcessNames)
+            {
+                if (name == sys)
+                    return true;
+            }
+
+            return false;
         }
 
         private void TryCleanFileCache()
@@ -179,21 +241,58 @@ namespace MR_Cleaner.Utility
                 if (!OpenProcessToken(GetCurrentProcess(), TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY, out token))
                     return;
 
-                if (!LookupPrivilegeValue(null, "SeIncreaseQuotaPrivilege", out LUID luid))
+                EnablePrivilege(token, "SeIncreaseQuotaPrivilege");
+                EnablePrivilege(token, "SeProfileSingleProcessPrivilege");
+
+                SetSystemFileCacheSize(new IntPtr(-1), new IntPtr(-1), 0);
+            }
+            catch { }
+            finally
+            {
+                if (token != IntPtr.Zero)
+                    try { CloseHandle(token); } catch { }
+            }
+        }
+
+        private void EnablePrivilege(IntPtr token, string privilegeName)
+        {
+            if (!LookupPrivilegeValue(null, privilegeName, out LUID luid))
+                return;
+
+            var tp = new TOKEN_PRIVILEGES
+            {
+                PrivilegeCount = 1,
+                Privileges = new LUID_AND_ATTRIBUTES
+                {
+                    Luid = luid,
+                    Attributes = SE_PRIVILEGE_ENABLED
+                }
+            };
+
+            AdjustTokenPrivileges(token, false, ref tp, 0, IntPtr.Zero, IntPtr.Zero);
+        }
+
+        private void TryPurgeStandbyList()
+        {
+            IntPtr token = IntPtr.Zero;
+            try
+            {
+                if (!OpenProcessToken(GetCurrentProcess(), TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY, out token))
                     return;
 
-                var tp = new TOKEN_PRIVILEGES
-                {
-                    PrivilegeCount = 1,
-                    Privileges = new LUID_AND_ATTRIBUTES
-                    {
-                        Luid = luid,
-                        Attributes = SE_PRIVILEGE_ENABLED
-                    }
-                };
+                EnablePrivilege(token, "SeProfileSingleProcessPrivilege");
 
-                AdjustTokenPrivileges(token, false, ref tp, 0, IntPtr.Zero, IntPtr.Zero);
-                SetSystemFileCacheSize(new IntPtr(-1), new IntPtr(-1), 0);
+                var commandFlush = MemoryFlushModifiedList;
+                var ptrFlush = Marshal.AllocHGlobal(sizeof(int));
+                Marshal.WriteInt32(ptrFlush, commandFlush);
+                NtSetSystemInformation(SystemMemoryListInformation, ptrFlush, sizeof(int));
+                Marshal.FreeHGlobal(ptrFlush);
+
+                var commandPurge = MemoryPurgeStandbyList;
+                var ptrPurge = Marshal.AllocHGlobal(sizeof(int));
+                Marshal.WriteInt32(ptrPurge, commandPurge);
+                NtSetSystemInformation(SystemMemoryListInformation, ptrPurge, sizeof(int));
+                Marshal.FreeHGlobal(ptrPurge);
             }
             catch { }
             finally

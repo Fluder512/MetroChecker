@@ -1,11 +1,14 @@
 ﻿using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Management;
 using System.Net.NetworkInformation;
 using System.Runtime.InteropServices;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace MR_Cleaner.Utility
@@ -43,85 +46,96 @@ namespace MR_Cleaner.Utility
         private const uint PAGE_EXECUTE_WRITECOPY = 0x80;
         private const uint MEM_PRIVATE = 0x20000;
 
-        private readonly List<string> _threats = new List<string>();
-        private readonly List<string> _log = new List<string>();
-        private int _scannedCount;
-        private int _killedCount;
+        private static readonly int SelfPid = Process.GetCurrentProcess().Id;
+        private static readonly string SelfName = Process.GetCurrentProcess().ProcessName.ToLowerInvariant();
 
-        private static readonly int _selfPid = Process.GetCurrentProcess().Id;
-        private static readonly string _selfName = Process.GetCurrentProcess().ProcessName.ToLower();
+        private static readonly HashSet<string> CriticalProcesses = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "system", "idle", "smss", "csrss", "wininit", "services", "lsass", "winlogon"
+        };
 
-        private static readonly string[] SuspiciousNames = {
+        private static readonly HashSet<string> SuspiciousNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
             "svch0st", "svchost32", "svchost64", "lsass32", "winlogon32",
             "explorer32", "csrss32", "smss32", "wininit32", "services32",
             "spoolsv32", "taskhost32", "taskhostw32", "conhost32"
         };
 
-        private static readonly string[] KnownMalwarePaths = {
+        private static readonly string[] KnownMalwarePaths =
+        {
             @"\AppData\Local\Temp\",
             @"\AppData\Roaming\Microsoft\Windows\",
             @"\Users\Public\",
-            @"\ProgramData\Microsoft\Windows\",
+            @"\ProgramData\Microsoft\Windows\"
         };
+
+        private static readonly string[] SuspiciousDlls =
+        {
+            "meterpreter", "cobalt", "beacon", "inject", "hook32", "hook64"
+        };
+
+        private static readonly Dictionary<string, string[]> UnexpectedChildren = new Dictionary<string, string[]>(StringComparer.OrdinalIgnoreCase)
+        {
+            { "explorer", new[] { "cmd", "powershell", "wscript", "cscript", "mshta" } },
+            { "winword",  new[] { "cmd", "powershell", "wscript", "cscript" } },
+            { "excel",    new[] { "cmd", "powershell", "wscript", "cscript" } }
+        };
+
+        private static readonly HashSet<int> C2Ports = new HashSet<int> { 4444, 1337, 31337, 666, 9999, 12345, 54321 };
+
+        private ConcurrentBag<string> _threatsBag;
+        private ConcurrentBag<string> _logBag;
+        private int _scannedCount;
+        private int _killedCount;
+
+        private TcpConnectionInformation[] _tcpSnapshot;
+
+        public List<string> Threats { get; } = new List<string>();
+        public List<string> Log { get; } = new List<string>();
 
         public void ScanProcessesOnly(bool removeThreats = false, bool intensiveMode = false)
         {
-            _threats.Clear();
-            _log.Clear();
+            _threatsBag = new ConcurrentBag<string>();
+            _logBag = new ConcurrentBag<string>();
             _scannedCount = 0;
             _killedCount = 0;
 
+            try { _tcpSnapshot = IPGlobalProperties.GetIPGlobalProperties().GetActiveTcpConnections(); }
+            catch { _tcpSnapshot = new TcpConnectionInformation[0]; }
+
             Process[] processes;
-            try
-            {
-                processes = Process.GetProcesses();
-            }
-            catch
-            {
-                return;
-            }
+            try { processes = Process.GetProcesses(); }
+            catch { return; }
 
-            if (intensiveMode)
+            var options = new ParallelOptions
             {
-                var options = new ParallelOptions { MaxDegreeOfParallelism = Math.Max(1, Environment.ProcessorCount / 2) };
-                Parallel.ForEach(processes, options, p => AnalyzeProcess(p, removeThreats, intensiveMode));
-            }
-            else
-            {
-                foreach (var p in processes)
-                    AnalyzeProcess(p, removeThreats, intensiveMode);
-            }
-        }
+                MaxDegreeOfParallelism = Math.Max(1, Environment.ProcessorCount - 1)
+            };
 
-        private bool IsSelfProcess(Process p)
-        {
-            try
-            {
-                return p.Id == _selfPid || p.ProcessName.ToLower() == _selfName;
-            }
-            catch
-            {
-                return false;
-            }
+            Parallel.ForEach(processes, options, p => AnalyzeProcess(p, removeThreats, intensiveMode));
+
+            Threats.Clear();
+            Log.Clear();
+            Threats.AddRange(_threatsBag);
+            Log.AddRange(_logBag);
         }
 
         private void AnalyzeProcess(Process process, bool removeThreats, bool intensiveMode)
         {
             try
             {
-                if (IsSelfProcess(process))
-                    return;
+                if (IsSelf(process)) return;
 
-                System.Threading.Interlocked.Increment(ref _scannedCount);
+                Interlocked.Increment(ref _scannedCount);
 
-                if (IsSystemCritical(process))
-                    return;
+                if (IsSystemCritical(process)) return;
 
                 var suspicions = new List<string>();
 
                 CheckProcessName(process, suspicions);
                 CheckProcessPath(process, suspicions);
                 CheckParentProcess(process, suspicions);
+                CheckNetworkActivity(process, suspicions);
 
                 if (intensiveMode)
                 {
@@ -129,83 +143,64 @@ namespace MR_Cleaner.Utility
                     CheckSuspiciousMemory(process, suspicions);
                 }
 
-                CheckNetworkActivity(process, suspicions);
+                if (suspicions.Count == 0) return;
 
-                if (suspicions.Count > 0)
+                string msg = $"[THREAT] PID={process.Id} | {process.ProcessName} | {string.Join("; ", suspicions)}";
+                _threatsBag.Add(msg);
+                _logBag.Add(msg);
+
+                if (removeThreats)
                 {
-                    var msg = $"[THREAT] PID={process.Id} | {process.ProcessName} | {string.Join("; ", suspicions)}";
-                    lock (_threats)
+                    try
                     {
-                        _threats.Add(msg);
-                        _log.Add(msg);
+                        process.Kill();
+                        Interlocked.Increment(ref _killedCount);
+                        _logBag.Add($"[KILLED] PID={process.Id} | {process.ProcessName}");
                     }
-
-                    if (removeThreats && !IsSelfProcess(process))
-                    {
-                        try
-                        {
-                            process.Kill();
-                            System.Threading.Interlocked.Increment(ref _killedCount);
-                            lock (_log)
-                                _log.Add($"[KILLED] PID={process.Id} | {process.ProcessName}");
-                        }
-                        catch { }
-                    }
+                    catch { }
                 }
             }
             catch { }
-            finally
-            {
-                try { process.Dispose(); } catch { }
-            }
+            finally { try { process.Dispose(); } catch { } }
         }
 
-        private bool IsSystemCritical(Process p)
+        private static bool IsSelf(Process p)
+        {
+            try { return p.Id == SelfPid || p.ProcessName.ToLowerInvariant() == SelfName; }
+            catch { return false; }
+        }
+
+        private static bool IsSystemCritical(Process p)
+        {
+            try { return CriticalProcesses.Contains(p.ProcessName); }
+            catch { return true; }
+        }
+
+        private static void CheckProcessName(Process p, List<string> suspicions)
         {
             try
             {
-                var critical = new[] { "system", "idle", "smss", "csrss", "wininit", "services", "lsass", "winlogon" };
-                return critical.Contains(p.ProcessName.ToLower());
-            }
-            catch
-            {
-                return true;
-            }
-        }
-
-        private void CheckProcessName(Process p, List<string> suspicions)
-        {
-            try
-            {
-                var name = p.ProcessName.ToLower();
-                if (SuspiciousNames.Any(s => s.Equals(name, StringComparison.OrdinalIgnoreCase)))
+                if (SuspiciousNames.Contains(p.ProcessName))
                     suspicions.Add("Подозрительное имя процесса (имитация системного)");
             }
             catch { }
         }
 
-        private void CheckProcessPath(Process p, List<string> suspicions)
+        private static void CheckProcessPath(Process p, List<string> suspicions)
         {
             try
             {
                 string path;
-                try
-                {
-                    path = p.MainModule?.FileName ?? string.Empty;
-                }
-                catch
-                {
-                    return;
-                }
+                try { path = p.MainModule?.FileName ?? string.Empty; }
+                catch { return; }
 
-                if (string.IsNullOrEmpty(path))
-                    return;
+                if (string.IsNullOrEmpty(path)) return;
 
-                foreach (var suspicious in KnownMalwarePaths)
+                foreach (var malwarePath in KnownMalwarePaths)
                 {
-                    if (path.IndexOf(suspicious, StringComparison.OrdinalIgnoreCase) >= 0)
+                    if (path.IndexOf(malwarePath, StringComparison.OrdinalIgnoreCase) >= 0)
                     {
-                        suspicions.Add($"Запущен из подозрительного расположения: {suspicious}");
+                        suspicions.Add($"Запущен из подозрительного расположения: {malwarePath}");
                         break;
                     }
                 }
@@ -216,71 +211,71 @@ namespace MR_Cleaner.Utility
             catch { }
         }
 
-        private void CheckParentProcess(Process p, List<string> suspicions)
+        private static void CheckParentProcess(Process p, List<string> suspicions)
         {
             try
             {
-                var options = new System.Management.ObjectGetOptions();
-                var scope = new System.Management.ManagementScope();
-                scope.Options.Timeout = TimeSpan.FromSeconds(2);
-
-                var wmi = new System.Management.ManagementObjectSearcher(
-                    $"SELECT ParentProcessId FROM Win32_Process WHERE ProcessId = {p.Id}");
-                wmi.Options.Timeout = TimeSpan.FromSeconds(2);
-
-                System.Management.ManagementObjectCollection results;
-                try
+                using (var wmi = new ManagementObjectSearcher(
+                    $"SELECT ParentProcessId FROM Win32_Process WHERE ProcessId = {p.Id}"))
                 {
-                    results = wmi.Get();
-                }
-                catch
-                {
-                    return;
-                }
+                    wmi.Options.Timeout = TimeSpan.FromSeconds(2);
 
-                foreach (System.Management.ManagementObject obj in results)
-                {
-                    try
+                    ManagementObjectCollection results;
+                    try { results = wmi.Get(); }
+                    catch { return; }
+
+                    foreach (ManagementObject obj in results)
                     {
-                        var parentIdRaw = obj["ParentProcessId"];
-                        if (parentIdRaw == null) continue;
-
-                        var parentId = Convert.ToInt32(parentIdRaw);
-                        if (parentId == _selfPid) continue;
-
-                        Process parent;
                         try
                         {
-                            parent = Process.GetProcessById(parentId);
-                        }
-                        catch
-                        {
-                            continue;
-                        }
+                            var raw = obj["ParentProcessId"];
+                            if (raw == null) continue;
 
-                        var unexpectedChildren = new Dictionary<string, string[]>
-                        {
-                            { "explorer", new[] { "cmd", "powershell", "wscript", "cscript", "mshta" } },
-                            { "winword",  new[] { "cmd", "powershell", "wscript", "cscript" } },
-                            { "excel",    new[] { "cmd", "powershell", "wscript", "cscript" } },
-                        };
+                            int parentId = Convert.ToInt32(raw);
+                            if (parentId == SelfPid) continue;
 
-                        var parentName = parent.ProcessName.ToLower();
-                        var childName = p.ProcessName.ToLower();
+                            Process parent;
+                            try { parent = Process.GetProcessById(parentId); }
+                            catch { continue; }
 
-                        foreach (var kv in unexpectedChildren)
-                        {
-                            if (parentName == kv.Key && kv.Value.Contains(childName))
-                                suspicions.Add($"Подозрительное дерево процессов: {parent.ProcessName} -> {p.ProcessName}");
+                            string parentName = parent.ProcessName.ToLowerInvariant();
+                            string childName = p.ProcessName.ToLowerInvariant();
+
+                            foreach (var kv in UnexpectedChildren)
+                            {
+                                if (string.Equals(parentName, kv.Key, StringComparison.OrdinalIgnoreCase)
+                                    && kv.Value.Contains(childName))
+                                {
+                                    suspicions.Add($"Подозрительное дерево процессов: {parent.ProcessName} -> {p.ProcessName}");
+                                }
+                            }
                         }
+                        catch { }
                     }
-                    catch { }
                 }
             }
             catch { }
         }
 
-        private void CheckRunPE(Process p, List<string> suspicions)
+        private void CheckNetworkActivity(Process p, List<string> suspicions)
+        {
+            try
+            {
+                var found = _tcpSnapshot
+                    .Where(c =>
+                    {
+                        try { return c.State == TcpState.Established && C2Ports.Contains(c.RemoteEndPoint.Port); }
+                        catch { return false; }
+                    })
+                    .ToList();
+
+                if (found.Count > 0)
+                    suspicions.Add($"Подозрительные соединения: {string.Join(", ", found.Select(c => c.RemoteEndPoint.ToString()))}");
+            }
+            catch { }
+        }
+
+        private static void CheckRunPE(Process p, List<string> suspicions)
         {
             IntPtr hProcess = IntPtr.Zero;
             try
@@ -296,7 +291,8 @@ namespace MR_Cleaner.Utility
 
                 while (iterations++ < maxIterations)
                 {
-                    int result = VirtualQueryEx(hProcess, address, out MEMORY_BASIC_INFORMATION mbi, (uint)Marshal.SizeOf<MEMORY_BASIC_INFORMATION>());
+                    int result = VirtualQueryEx(hProcess, address, out MEMORY_BASIC_INFORMATION mbi,
+                        (uint)Marshal.SizeOf(typeof(MEMORY_BASIC_INFORMATION)));
                     if (result == 0) break;
 
                     long regionSize = mbi.RegionSize.ToInt64();
@@ -333,13 +329,11 @@ namespace MR_Cleaner.Utility
             finally
             {
                 if (hProcess != IntPtr.Zero)
-                {
                     try { CloseHandle(hProcess); } catch { }
-                }
             }
         }
 
-        private bool ContainsMzHeader(IntPtr hProcess, IntPtr baseAddress)
+        private static bool ContainsMzHeader(IntPtr hProcess, IntPtr baseAddress)
         {
             try
             {
@@ -350,31 +344,26 @@ namespace MR_Cleaner.Utility
             catch { return false; }
         }
 
-        private void CheckSuspiciousMemory(Process p, List<string> suspicions)
+        private static void CheckSuspiciousMemory(Process p, List<string> suspicions)
         {
             try
             {
                 ProcessModuleCollection modules;
-                try
-                {
-                    modules = p.Modules;
-                }
-                catch
-                {
-                    return;
-                }
-
-                var knownSuspiciousDlls = new[] { "meterpreter", "cobalt", "beacon", "inject", "hook32", "hook64" };
+                try { modules = p.Modules; }
+                catch { return; }
 
                 foreach (ProcessModule m in modules)
                 {
                     try
                     {
-                        var name = m.ModuleName.ToLower();
-                        foreach (var s in knownSuspiciousDlls)
+                        string name = m.ModuleName.ToLowerInvariant();
+                        foreach (var s in SuspiciousDlls)
                         {
                             if (name.Contains(s))
+                            {
                                 suspicions.Add($"Подозрительная DLL: {m.ModuleName}");
+                                break;
+                            }
                         }
                     }
                     catch { }
@@ -383,41 +372,22 @@ namespace MR_Cleaner.Utility
             catch { }
         }
 
-        private void CheckNetworkActivity(Process p, List<string> suspicions)
-        {
-            try
-            {
-                var connections = IPGlobalProperties.GetIPGlobalProperties().GetActiveTcpConnections();
-                var c2Ports = new HashSet<int> { 4444, 1337, 31337, 666, 9999, 12345, 54321 };
-
-                var found = connections.Where(c =>
-                {
-                    try { return c.State == TcpState.Established && c2Ports.Contains(c.RemoteEndPoint.Port); }
-                    catch { return false; }
-                }).ToList();
-
-                if (found.Any())
-                    suspicions.Add($"Подозрительные соединения: {string.Join(", ", found.Select(c => c.RemoteEndPoint.ToString()))}");
-            }
-            catch { }
-        }
-
         public string GetSummary()
         {
             var sb = new StringBuilder();
             sb.AppendLine($"Проверено процессов: {_scannedCount}");
-            sb.AppendLine($"Угроз обнаружено: {_threats.Count}");
+            sb.AppendLine($"Угроз обнаружено: {Threats.Count}");
             sb.AppendLine($"Процессов завершено: {_killedCount}");
             sb.AppendLine();
 
-            if (_threats.Count == 0)
+            if (Threats.Count == 0)
             {
                 sb.AppendLine("Угроз нету");
             }
             else
             {
                 sb.AppendLine("--- Обнаруженные угрозы ---");
-                foreach (var t in _threats)
+                foreach (var t in Threats)
                     sb.AppendLine(t);
             }
 

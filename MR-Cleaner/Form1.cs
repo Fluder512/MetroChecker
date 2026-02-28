@@ -10,6 +10,7 @@ using System.Drawing;
 using System.Drawing.Text;
 using System.IO;
 using System.Linq;
+using System.Linq.Expressions;
 using System.Text;
 using System.Threading.Tasks;
 using System.Windows.Forms;
@@ -233,15 +234,8 @@ namespace MR_Cleaner
 
         private void metroLabel9_Click(object sender, EventArgs e)
         {
-            try
-            {
-                Process.Start(new ProcessStartInfo
-                {
-                    FileName = "https://github.com/Fluder512",
-                    UseShellExecute = true
-                });
-            }
-            catch { }
+            FormAbout formAbout = new FormAbout();
+            formAbout.ShowDialog();
         }
 
         private void metroButton9_Click(object sender, EventArgs e)
@@ -591,6 +585,87 @@ namespace MR_Cleaner
             {
                 MetroFramework.MetroMessageBox.Show(this, "Ошибка: " + ex.Message, "Ошибка", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
+            this.ActiveControl = null;
+
+        }
+
+        private void metroButton18_Click(object sender, EventArgs e)
+        {
+            try
+            {
+                using (var key = Microsoft.Win32.Registry.LocalMachine.OpenSubKey(@"SYSTEM\CurrentControlSet\Services\USBSTOR", true))
+                {
+                    if (key != null)
+                    {
+                        int value = (int)key.GetValue("Start", -1);
+                        if (value != 3)
+                        {
+                            key.SetValue("Start", 3, Microsoft.Win32.RegistryValueKind.DWord);
+                            MetroFramework.MetroMessageBox.Show(this, "USB был выключен, изменён на включён", "USB", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                        }
+                        else
+                        {
+                            MetroFramework.MetroMessageBox.Show(this, "USB уже включён", "USB", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                MetroFramework.MetroMessageBox.Show(this, "Ошибка: " + ex.Message, "Ошибка", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+            this.ActiveControl = null;
+        }
+
+        private void metroButton19_Click(object sender, EventArgs e)
+        {
+            try
+            {
+                string[] paths = {
+            Environment.ExpandEnvironmentVariables("%TEMP%"),
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "Temp"),
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "Prefetch")
+        };
+
+                int count = 0;
+
+                foreach (string path in paths)
+                {
+                    if (Directory.Exists(path))
+                    {
+                        foreach (string file in Directory.GetFiles(path))
+                        {
+                            try
+                            {
+                                File.Delete(file);
+                                count++;
+                            }
+                            catch { }
+                        }
+                    }
+                }
+
+                MetroFramework.MetroMessageBox.Show(this, $"Удалено файлов: {count}", "Очистка", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            }
+            catch (Exception ex)
+            {
+                MetroFramework.MetroMessageBox.Show(this, "Ошибка: " + ex.Message, "Ошибка", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+
+            this.ActiveControl = null;
+        }
+
+        private void metroButton20_Click(object sender, EventArgs e)
+        {
+            FormTaskMgr formtaskMgr = new FormTaskMgr();
+            formtaskMgr.ShowDialog(this);
+            this.ActiveControl = null;
+        }
+
+        private void metroButton21_Click(object sender, EventArgs e)
+        {
+            FormNetstat formNetstat = new FormNetstat();
+            formNetstat.ShowDialog(this);
             this.ActiveControl = null;
         }
     }

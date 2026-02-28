@@ -1,5 +1,6 @@
 ﻿using Microsoft.Win32;
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
@@ -8,119 +9,158 @@ using System.Management;
 using System.Net.NetworkInformation;
 using System.ServiceProcess;
 using System.Text;
-using System.Text.RegularExpressions;
+using System.Threading.Tasks;
 
 namespace MR_Cleaner.Utility
 {
     internal class MinerSearch
     {
-        private readonly int[] _PortList = new[] { 1111, 1112, 2020, 3333, 4028, 4040, 4141, 4444, 5555, 6633, 6666, 7001, 7777, 9980, 9999, 10191, 10343, 14433, 20009 };
-        private readonly string[] _SuspNames = new[] { "xmrig", "minerd", "cpuminer", "ethminer", "claymore", "phoenix", "guiminer", "bfgminer", "cgminer", "nicehash", "nanominer", "lolminer", "teamredminer", "gminer", "t-rex", "nbminer", "kawpowminer", "unmineable", "flexpool", "2miners", "herominers", "minexmr", "xmr-stak", "xmrig-proxy", "xmrig-amd", "xmrig-cuda", "cryptonight", "randomx", "kawpow", "autolykos", "ethash", "progpow", "beamv3", "cuckoo", "cuckaroom", "cuckatoo", "ghostrider", "octopus", "etchash", "ubqhash", "firopow", "kheavyhash", "pyrinhash", "karlsenhash" };
-        private readonly string[] _SuspPaths = new[] { "temp", "appdata", "local\\temp", "programdata", "users\\public", "windows\\temp", "recycle.bin" };
+        private static readonly HashSet<int> PortSet = new HashSet<int>
+        {
+            1111, 1112, 2020, 3333, 4028, 4040, 4141, 4444, 5555,
+            6633, 6666, 7001, 7777, 9980, 9999, 10191, 10343, 14433, 20009
+        };
 
-        public List<string> FoundMiners { get; private set; } = new List<string>();
-        public List<string> FoundSuspicious { get; private set; } = new List<string>();
+        private static readonly HashSet<string> SuspNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "xmrig", "minerd", "cpuminer", "ethminer", "claymore", "phoenix",
+            "guiminer", "bfgminer", "cgminer", "nicehash", "nanominer", "lolminer",
+            "teamredminer", "gminer", "t-rex", "nbminer", "kawpowminer", "unmineable",
+            "flexpool", "2miners", "herominers", "minexmr", "xmr-stak", "xmrig-proxy",
+            "xmrig-amd", "xmrig-cuda", "cryptonight", "randomx", "kawpow", "autolykos",
+            "ethash", "progpow", "beamv3", "cuckoo", "cuckaroom", "cuckatoo",
+            "ghostrider", "octopus", "etchash", "ubqhash", "firopow",
+            "kheavyhash", "pyrinhash", "karlsenhash"
+        };
+
+        private static readonly string[] SuspPaths =
+        {
+            "temp", "appdata", "local\\temp", "programdata",
+            "users\\public", "windows\\temp", "recycle.bin"
+        };
+
+        private static readonly string[] StartupKeys =
+        {
+            @"SOFTWARE\Microsoft\Windows\CurrentVersion\Run",
+            @"SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce",
+            @"SOFTWARE\Wow6432Node\Microsoft\Windows\CurrentVersion\Run",
+            @"SOFTWARE\Wow6432Node\Microsoft\Windows\CurrentVersion\RunOnce"
+        };
+
+        public List<string> FoundMiners { get; } = new List<string>();
+        public List<string> FoundSuspicious { get; } = new List<string>();
+
+        private ConcurrentBag<string> _minersBag;
+        private ConcurrentBag<string> _suspBag;
 
         public void Scan()
         {
+            _minersBag = new ConcurrentBag<string>();
+            _suspBag = new ConcurrentBag<string>();
+
+            var tasks = new[]
+            {
+                Task.Run(() => ScanProcesses()),
+                Task.Run(() => ScanNetworkConnections()),
+                Task.Run(() => ScanServices()),
+                Task.Run(() => ScanScheduledTasks()),
+                Task.Run(() => ScanStartup())
+            };
+
+            Task.WaitAll(tasks);
+
             FoundMiners.Clear();
             FoundSuspicious.Clear();
-            ScanProcesses();
-            ScanNetworkConnections();
-            ScanServices();
-            ScanScheduledTasks();
-            ScanStartup();
+            FoundMiners.AddRange(_minersBag);
+            FoundSuspicious.AddRange(_suspBag);
         }
 
         private void ScanProcesses()
         {
-            foreach (Process proc in Process.GetProcesses())
+            var processes = Process.GetProcesses();
+            Parallel.ForEach(processes, proc =>
             {
                 try
                 {
-                    string name = proc.ProcessName.ToLower();
-                    string path = proc.MainModule?.FileName?.ToLower() ?? "";
-                    if (_SuspNames.Any(s => name.Contains(s)) || _SuspNames.Any(s => path.Contains(s)))
+                    string name = proc.ProcessName.ToLowerInvariant();
+                    string path = string.Empty;
+
+                    try { path = proc.MainModule?.FileName?.ToLowerInvariant() ?? string.Empty; }
+                    catch { }
+
+                    if (ContainsSuspName(name) || ContainsSuspName(path))
                     {
-                        FoundMiners.Add($"Процесс: {proc.ProcessName} (ПИД: {proc.Id}) - {path}");
-                        continue;
+                        _minersBag.Add($"Процесс: {proc.ProcessName} (ПИД: {proc.Id}) - {path}");
+                        return;
                     }
+
                     if (IsRunningFromSuspiciousPath(path))
-                    {
-                        FoundSuspicious.Add($"Подозрительный путь: {proc.ProcessName} - {path}");
-                    }
+                        _suspBag.Add($"Подозрительный путь: {proc.ProcessName} - {path}");
                 }
                 catch { }
                 finally { try { proc.Dispose(); } catch { } }
-            }
+            });
         }
 
         private void ScanNetworkConnections()
         {
-            var tcpConnections = IPGlobalProperties.GetIPGlobalProperties().GetActiveTcpConnections();
-            foreach (var conn in tcpConnections)
+            try
             {
-                if (_PortList.Contains(conn.LocalEndPoint.Port) || _PortList.Contains(conn.RemoteEndPoint.Port))
+                var connections = IPGlobalProperties.GetIPGlobalProperties().GetActiveTcpConnections();
+                foreach (var conn in connections)
                 {
-                    FoundSuspicious.Add($"Порт майнера: {conn.LocalEndPoint} -> {conn.RemoteEndPoint}");
+                    if (PortSet.Contains(conn.LocalEndPoint.Port) || PortSet.Contains(conn.RemoteEndPoint.Port))
+                        _suspBag.Add($"Порт майнера: {conn.LocalEndPoint} -> {conn.RemoteEndPoint}");
                 }
             }
+            catch { }
         }
 
         private void ScanServices()
         {
-            foreach (ServiceController svc in ServiceController.GetServices())
+            try
             {
-                try
+                foreach (var svc in ServiceController.GetServices())
                 {
-                    string name = svc.ServiceName.ToLower();
-                    string path = GetServicePath(svc.ServiceName)?.ToLower() ?? "";
-                    if (_SuspNames.Any(s => name.Contains(s)) || _SuspNames.Any(s => path.Contains(s)))
+                    try
                     {
-                        FoundMiners.Add($"Service: {svc.ServiceName} - {path}");
+                        string name = svc.ServiceName.ToLowerInvariant();
+                        string path = GetServiceImagePath(svc.ServiceName)?.ToLowerInvariant() ?? string.Empty;
+
+                        if (ContainsSuspName(name) || ContainsSuspName(path))
+                            _minersBag.Add($"Сервис: {svc.ServiceName} - {path}");
+                        else if (IsRunningFromSuspiciousPath(path))
+                            _suspBag.Add($"Подозрительный сервис: {svc.ServiceName} - {path}");
                     }
-                    else if (IsRunningFromSuspiciousPath(path))
-                    {
-                        FoundSuspicious.Add($"Подозрительный сервис: {svc.ServiceName} - {path}");
-                    }
+                    catch { }
                 }
-                catch { }
             }
+            catch { }
         }
 
         private void ScanScheduledTasks()
         {
+            ScanScheduledTasksWmi();
+            ScanScheduledTasksFiles();
+        }
+
+        private void ScanScheduledTasksWmi()
+        {
             try
             {
-                var searcher = new ManagementObjectSearcher("SELECT Name, CommandLine FROM Win32_ScheduledJob");
-                foreach (ManagementObject task in searcher.Get())
+                using (var searcher = new ManagementObjectSearcher("SELECT Name, CommandLine FROM Win32_ScheduledJob"))
                 {
-                    string cmd = task["CommandLine"]?.ToString()?.ToLower() ?? "";
-                    if (_SuspNames.Any(s => cmd.Contains(s)))
-                    {
-                        FoundMiners.Add($"Шедульный процесс: {task["Name"]} - {cmd}");
-                    }
-                    else if (IsRunningFromSuspiciousPath(cmd))
-                    {
-                        FoundSuspicious.Add($"Подозрительный процесс: {task["Name"]} - {cmd}");
-                    }
-                }
-            }
-            catch { }
-            try
-            {
-                string tasksPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "System32", "Tasks");
-                if (Directory.Exists(tasksPath))
-                {
-                    foreach (var file in Directory.GetFiles(tasksPath, "*", SearchOption.AllDirectories))
+                    foreach (ManagementObject task in searcher.Get())
                     {
                         try
                         {
-                            string content = File.ReadAllText(file);
-                            if (_SuspNames.Any(s => content.ToLower().Contains(s)))
-                            {
-                                FoundMiners.Add($"Процесс файл: {file}");
-                            }
+                            string cmd = task["CommandLine"]?.ToString()?.ToLowerInvariant() ?? string.Empty;
+                            string taskName = task["Name"]?.ToString() ?? string.Empty;
+
+                            if (ContainsSuspName(cmd))
+                                _minersBag.Add($"Задание (WMI): {taskName} - {cmd}");
+                            else if (IsRunningFromSuspiciousPath(cmd))
+                                _suspBag.Add($"Подозрительное задание (WMI): {taskName} - {cmd}");
                         }
                         catch { }
                     }
@@ -129,64 +169,78 @@ namespace MR_Cleaner.Utility
             catch { }
         }
 
+        private void ScanScheduledTasksFiles()
+        {
+            try
+            {
+                string tasksPath = Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.Windows),
+                    "System32", "Tasks");
+
+                if (!Directory.Exists(tasksPath))
+                    return;
+
+                var files = Directory.GetFiles(tasksPath, "*", SearchOption.AllDirectories);
+                Parallel.ForEach(files, file =>
+                {
+                    try
+                    {
+                        string content = File.ReadAllText(file).ToLowerInvariant();
+                        if (ContainsSuspName(content))
+                            _minersBag.Add($"Задание (файл): {file}");
+                    }
+                    catch { }
+                });
+            }
+            catch { }
+        }
+
         private void ScanStartup()
         {
-            string[] startupKeys = new[]
+            foreach (string keyPath in StartupKeys)
             {
-                @"SOFTWARE\Microsoft\Windows\CurrentVersion\Run",
-                @"SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce",
-                @"SOFTWARE\Wow6432Node\Microsoft\Windows\CurrentVersion\Run",
-                @"SOFTWARE\Wow6432Node\Microsoft\Windows\CurrentVersion\RunOnce"
-            };
-            foreach (string keyPath in startupKeys)
-            {
-                try
-                {
-                    using (var key = Registry.LocalMachine.OpenSubKey(keyPath))
-                    {
-                        if (key != null)
-                        {
-                            foreach (string valueName in key.GetValueNames())
-                            {
-                                string value = key.GetValue(valueName)?.ToString()?.ToLower() ?? "";
-                                if (_SuspNames.Any(s => value.Contains(s)) || IsRunningFromSuspiciousPath(value))
-                                {
-                                    FoundSuspicious.Add($"Автозапуск: {valueName} = {value}");
-                                }
-                            }
-                        }
-                    }
-                }
-                catch { }
-                try
-                {
-                    using (var key = Registry.CurrentUser.OpenSubKey(keyPath))
-                    {
-                        if (key != null)
-                        {
-                            foreach (string valueName in key.GetValueNames())
-                            {
-                                string value = key.GetValue(valueName)?.ToString()?.ToLower() ?? "";
-                                if (_SuspNames.Any(s => value.Contains(s)) || IsRunningFromSuspiciousPath(value))
-                                {
-                                    FoundSuspicious.Add($"Автозапуск (CU): {valueName} = {value}");
-                                }
-                            }
-                        }
-                    }
-                }
-                catch { }
+                ScanStartupKey(Registry.LocalMachine, keyPath, "HKLM");
+                ScanStartupKey(Registry.CurrentUser, keyPath, "HKCU");
             }
         }
 
-        private bool IsRunningFromSuspiciousPath(string path)
+        private void ScanStartupKey(RegistryKey hive, string keyPath, string hiveLabel)
         {
-            if (string.IsNullOrEmpty(path)) return false;
-            string lowerPath = path.ToLower();
-            return _SuspPaths.Any(s => lowerPath.Contains(s));
+            try
+            {
+                using (var key = hive.OpenSubKey(keyPath))
+                {
+                    if (key == null) return;
+
+                    foreach (string valueName in key.GetValueNames())
+                    {
+                        string value = key.GetValue(valueName)?.ToString()?.ToLowerInvariant() ?? string.Empty;
+
+                        if (ContainsSuspName(value))
+                            _suspBag.Add($"Автозапуск [{hiveLabel}]: {valueName} = {value}");
+                        else if (IsRunningFromSuspiciousPath(value))
+                            _suspBag.Add($"Подозрительный автозапуск [{hiveLabel}]: {valueName} = {value}");
+                    }
+                }
+            }
+            catch { }
         }
 
-        private string GetServicePath(string serviceName)
+        private static bool ContainsSuspName(string input)
+        {
+            if (string.IsNullOrEmpty(input)) return false;
+            string lower = input.ToLowerInvariant();
+            return SuspNames.Any(s => lower.Contains(s));
+        }
+
+        private static bool IsRunningFromSuspiciousPath(string path)
+        {
+            if (string.IsNullOrEmpty(path)) return false;
+            string lower = path.ToLowerInvariant();
+            return SuspPaths.Any(s => lower.Contains(s));
+        }
+
+        private static string GetServiceImagePath(string serviceName)
         {
             try
             {
@@ -200,29 +254,31 @@ namespace MR_Cleaner.Utility
 
         public string GetReport()
         {
-            var report = new StringBuilder();
-            report.AppendLine("=== Miner Search ===");
-            report.AppendLine($"Время: {DateTime.Now}");
-            report.AppendLine();
+            var sb = new StringBuilder();
+            sb.AppendLine("=== Miner Search ===");
+            sb.AppendLine($"Время: {DateTime.Now}");
+            sb.AppendLine();
+
             if (FoundMiners.Count > 0)
             {
-                report.AppendLine("[!!!] Найдено майнеров:");
-                foreach (var m in FoundMiners) report.AppendLine($"  - {m}");
-                report.AppendLine();
+                sb.AppendLine("[!!!] Найдено майнеров:");
+                foreach (var m in FoundMiners) sb.AppendLine($"  - {m}");
+                sb.AppendLine();
             }
+
             if (FoundSuspicious.Count > 0)
             {
-                report.AppendLine("[!!] Подозрительные процессы:");
-                foreach (var s in FoundSuspicious) report.AppendLine($"  - {s}");
-                report.AppendLine();
+                sb.AppendLine("[!!] Подозрительные процессы:");
+                foreach (var s in FoundSuspicious) sb.AppendLine($"  - {s}");
+                sb.AppendLine();
             }
+
             if (FoundMiners.Count == 0 && FoundSuspicious.Count == 0)
-            {
-                report.AppendLine("[OK] Всё ок.");
-            }
-            report.AppendLine($"Всего майнеров: {FoundMiners.Count}");
-            report.AppendLine($"Всего подозрительных: {FoundSuspicious.Count}");
-            return report.ToString();
+                sb.AppendLine("[OK] Всё ок.");
+
+            sb.AppendLine($"Всего майнеров: {FoundMiners.Count}");
+            sb.AppendLine($"Всего подозрительных: {FoundSuspicious.Count}");
+            return sb.ToString();
         }
     }
 }
