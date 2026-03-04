@@ -45,6 +45,7 @@ namespace MR_Cleaner.Utility
         private const uint PAGE_EXECUTE_READWRITE = 0x40;
         private const uint PAGE_EXECUTE_WRITECOPY = 0x80;
         private const uint MEM_PRIVATE = 0x20000;
+        private const uint MEM_IMAGE = 0x1000000;
 
         private static readonly int SelfPid = Process.GetCurrentProcess().Id;
         private static readonly string SelfName = Process.GetCurrentProcess().ProcessName.ToLowerInvariant();
@@ -82,6 +83,12 @@ namespace MR_Cleaner.Utility
         };
 
         private static readonly HashSet<int> C2Ports = new HashSet<int> { 4444, 1337, 31337, 666, 9999, 12345, 54321 };
+
+        private static readonly HashSet<string> DotNetProcesses = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "devenv", "msbuild", "dotnet", "dnspy", "ilspy", "jetbrains",
+            "rider", "vstest", "testhost", "csc", "vbc", "fsc"
+        };
 
         private ConcurrentBag<string> _threatsBag;
         private ConcurrentBag<string> _logBag;
@@ -174,6 +181,29 @@ namespace MR_Cleaner.Utility
         {
             try { return CriticalProcesses.Contains(p.ProcessName); }
             catch { return true; }
+        }
+
+        private static bool IsDotNetOrIDE(Process p)
+        {
+            try
+            {
+                string name = p.ProcessName.ToLowerInvariant();
+                if (DotNetProcesses.Any(d => name.Contains(d)))
+                    return true;
+
+                string path = string.Empty;
+                try { path = p.MainModule?.FileName ?? string.Empty; }
+                catch { }
+
+                if (string.IsNullOrEmpty(path)) return false;
+
+                string pathLower = path.ToLowerInvariant();
+                return pathLower.Contains("visual studio") ||
+                       pathLower.Contains("jetbrains") ||
+                       pathLower.Contains("microsoft.net") ||
+                       pathLower.Contains(@"\dotnet\");
+            }
+            catch { return false; }
         }
 
         private static void CheckProcessName(Process p, List<string> suspicions)
@@ -277,53 +307,63 @@ namespace MR_Cleaner.Utility
 
         private static void CheckRunPE(Process p, List<string> suspicions)
         {
+            if (IsDotNetOrIDE(p)) return;
+
+            string diskPath = string.Empty;
+            try { diskPath = p.MainModule?.FileName ?? string.Empty; }
+            catch { return; }
+
+            if (string.IsNullOrEmpty(diskPath) || !File.Exists(diskPath)) return;
+
             IntPtr hProcess = IntPtr.Zero;
             try
             {
                 hProcess = OpenProcess(PROCESS_VM_READ | PROCESS_QUERY_INFORMATION, false, p.Id);
                 if (hProcess == IntPtr.Zero) return;
 
-                IntPtr address = IntPtr.Zero;
-                int rwxRegions = 0;
-                int privateExecRegions = 0;
-                int iterations = 0;
-                const int maxIterations = 2000;
+                IntPtr mainModuleBase;
+                try { mainModuleBase = p.MainModule.BaseAddress; }
+                catch { return; }
 
-                while (iterations++ < maxIterations)
+                const int PE_HEADER_SIZE = 0x400;
+                byte[] memoryHeader = new byte[PE_HEADER_SIZE];
+                ReadProcessMemory(hProcess, mainModuleBase, memoryHeader, PE_HEADER_SIZE, out int bytesRead);
+                if (bytesRead < 64) return;
+
+                if (memoryHeader[0] != 0x4D || memoryHeader[1] != 0x5A) return;
+
+                byte[] diskHeader = new byte[PE_HEADER_SIZE];
+                try
                 {
-                    int result = VirtualQueryEx(hProcess, address, out MEMORY_BASIC_INFORMATION mbi,
-                        (uint)Marshal.SizeOf(typeof(MEMORY_BASIC_INFORMATION)));
-                    if (result == 0) break;
-
-                    long regionSize = mbi.RegionSize.ToInt64();
-                    if (regionSize <= 0) break;
-
-                    if (mbi.State == MEM_COMMIT)
+                    using (var fs = new FileStream(diskPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
                     {
-                        bool isExecWrite = mbi.Protect == PAGE_EXECUTE_READWRITE || mbi.Protect == PAGE_EXECUTE_WRITECOPY;
-                        bool isPrivate = mbi.Type == MEM_PRIVATE;
-                        bool isExecutable = (mbi.Protect & 0xF0) != 0;
-
-                        if (isExecWrite) rwxRegions++;
-                        if (isPrivate && isExecutable) privateExecRegions++;
-
-                        if (isPrivate && isExecutable && regionSize > 0x10000)
-                        {
-                            if (ContainsMzHeader(hProcess, mbi.BaseAddress))
-                                suspicions.Add("RunPE: PE-заголовок в приватной исполняемой памяти");
-                        }
+                        int read = fs.Read(diskHeader, 0, PE_HEADER_SIZE);
+                        if (read < 64) return;
                     }
+                }
+                catch { return; }
 
-                    long next = address.ToInt64() + regionSize;
-                    if (next <= address.ToInt64() || next >= 0x7FFFFFFF0000L) break;
-                    address = new IntPtr(next);
+                int peOffsetMem = BitConverter.ToInt32(memoryHeader, 0x3C);
+                int peOffsetDisk = BitConverter.ToInt32(diskHeader, 0x3C);
+
+                if (peOffsetMem < 0 || peOffsetMem + 6 >= PE_HEADER_SIZE) return;
+                if (peOffsetDisk < 0 || peOffsetDisk + 6 >= PE_HEADER_SIZE) return;
+
+                ushort machineMemory = BitConverter.ToUInt16(memoryHeader, peOffsetMem + 4);
+                ushort machineDisk = BitConverter.ToUInt16(diskHeader, peOffsetDisk + 4);
+
+                if (machineMemory != machineDisk)
+                {
+                    suspicions.Add($"RunPE: Machine type в памяти ({machineMemory:X4}) не совпадает с диском ({machineDisk:X4})");
+                    return;
                 }
 
-                if (rwxRegions > 5)
-                    suspicions.Add($"Process Hollowing: много RWX-регионов ({rwxRegions})");
+                int diffCount = CountHeaderDifferences(memoryHeader, diskHeader, peOffsetDisk);
 
-                if (privateExecRegions > 10)
-                    suspicions.Add($"Подозрительные приватные исполняемые регионы ({privateExecRegions})");
+                if (diffCount > 32)
+                {
+                    suspicions.Add($"RunPE: PE-заголовок в памяти сильно отличается от файла на диске (расхождений: {diffCount})");
+                }
             }
             catch { }
             finally
@@ -333,15 +373,44 @@ namespace MR_Cleaner.Utility
             }
         }
 
-        private static bool ContainsMzHeader(IntPtr hProcess, IntPtr baseAddress)
+        private static int CountHeaderDifferences(byte[] memory, byte[] disk, int peOffset)
         {
-            try
+            int diff = 0;
+
+            int[] criticalOffsets = GetCriticalPeOffsets(peOffset);
+
+            foreach (int offset in criticalOffsets)
             {
-                var buffer = new byte[2];
-                ReadProcessMemory(hProcess, baseAddress, buffer, 2, out int read);
-                return read == 2 && buffer[0] == 0x4D && buffer[1] == 0x5A;
+                if (offset + 4 >= memory.Length || offset + 4 >= disk.Length) continue;
+
+                for (int i = 0; i < 4; i++)
+                {
+                    if (memory[offset + i] != disk[offset + i])
+                        diff++;
+                }
             }
-            catch { return false; }
+
+            return diff;
+        }
+
+        private static int[] GetCriticalPeOffsets(int peOffset)
+        {
+            return new[]
+            {
+                peOffset,
+                peOffset + 4,
+                peOffset + 6,
+                peOffset + 20,
+                peOffset + 24,
+                peOffset + 28,
+                peOffset + 36,
+                peOffset + 40,
+                peOffset + 44,
+                peOffset + 56,
+                peOffset + 60,
+                peOffset + 64,
+                0x3C
+            };
         }
 
         private static void CheckSuspiciousMemory(Process p, List<string> suspicions)

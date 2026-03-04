@@ -12,6 +12,7 @@ using System.IO;
 using System.Linq;
 using System.Linq.Expressions;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 
@@ -617,41 +618,75 @@ namespace MR_Cleaner
             this.ActiveControl = null;
         }
 
-        private void metroButton19_Click(object sender, EventArgs e)
+        private async void metroButton19_Click(object sender, EventArgs e)
         {
-            try
+            this.ActiveControl = null;
+            metroButton19.Enabled = false;
+
+            long deletedFiles = 0;
+            long deletedBytes = 0;
+            long failedFiles = 0;
+
+            await Task.Run(() =>
             {
-                string[] paths = {
-            Environment.ExpandEnvironmentVariables("%TEMP%"),
-            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "Temp"),
-            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "Prefetch")
+                string winDir = Environment.GetFolderPath(Environment.SpecialFolder.Windows);
+                string localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+                string systemRoot = Environment.GetEnvironmentVariable("SystemRoot") ?? winDir;
+
+                string[] folders =
+                {
+            Path.GetTempPath(),
+            Path.Combine(winDir, "Temp"),
+            Path.Combine(winDir, "Prefetch"),
+            Path.Combine(winDir, "SoftwareDistribution", "Download"),
+            Path.Combine(localAppData, "Temp"),
+            Path.Combine(localAppData, "Microsoft", "Windows", "INetCache"),
+            Path.Combine(localAppData, "Microsoft", "Windows", "Temporary Internet Files"),
+            Path.Combine(localAppData, "Microsoft", "Windows", "WER"),
+            Path.Combine(localAppData, "CrashDumps"),
+            Path.Combine(systemRoot, "Logs"),
         };
 
-                int count = 0;
-
-                foreach (string path in paths)
+                Parallel.ForEach(folders, folder =>
                 {
-                    if (Directory.Exists(path))
+                    if (string.IsNullOrWhiteSpace(folder) || !Directory.Exists(folder)) return;
+                    try
                     {
-                        foreach (string file in Directory.GetFiles(path))
+                        foreach (string file in Directory.GetFiles(folder, "*", SearchOption.AllDirectories))
                         {
                             try
                             {
+                                long size = new FileInfo(file).Length;
                                 File.Delete(file);
-                                count++;
+                                Interlocked.Increment(ref deletedFiles);
+                                Interlocked.Add(ref deletedBytes, size);
                             }
-                            catch { }
+                            catch { Interlocked.Increment(ref failedFiles); }
+                        }
+                        foreach (string dir in Directory.GetDirectories(folder))
+                        {
+                            try { Directory.Delete(dir, true); } catch { }
                         }
                     }
-                }
+                    catch { }
+                });
+            });
 
-                MetroFramework.MetroMessageBox.Show(this, $"Удалено файлов: {count}", "Очистка", MessageBoxButtons.OK, MessageBoxIcon.Information);
-            }
-            catch (Exception ex)
-            {
-                MetroFramework.MetroMessageBox.Show(this, "Ошибка: " + ex.Message, "Ошибка", MessageBoxButtons.OK, MessageBoxIcon.Error);
-            }
+            string freed = deletedBytes >= 1024L * 1024 * 1024
+                ? $"{deletedBytes / (1024.0 * 1024 * 1024):F1} GB"
+                : deletedBytes >= 1024 * 1024
+                    ? $"{deletedBytes / (1024.0 * 1024):F1} MB"
+                    : deletedBytes >= 1024
+                        ? $"{deletedBytes / 1024.0:F1} KB"
+                        : $"{deletedBytes} B";
 
+            MetroFramework.MetroMessageBox.Show(this,
+                $"Удалено файлов: {deletedFiles}\nОсвобождено: {freed}\nНедоступны:: {failedFiles}",
+                "Очистка завершена",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Information);
+
+            metroButton19.Enabled = true;
             this.ActiveControl = null;
         }
 
@@ -668,5 +703,18 @@ namespace MR_Cleaner
             formNetstat.ShowDialog(this);
             this.ActiveControl = null;
         }
+
+        private void metroButton22_Click(object sender, EventArgs e)
+        {
+            FormScan formScan = new FormScan();
+            formScan.ShowDialog(this);
+            this.ActiveControl = null;
+        }
+
+        private void metroButton23_Click(object sender, EventArgs e)
+        {
+
+        }
+
     }
 }

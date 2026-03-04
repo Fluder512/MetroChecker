@@ -104,7 +104,6 @@
             this.metroTextBoxSearch.MaxLength = 32767;
             this.metroTextBoxSearch.Name = "metroTextBoxSearch";
             this.metroTextBoxSearch.PasswordChar = '\0';
-            this.metroTextBoxSearch.PromptText = "Поиск процесса...";
             this.metroTextBoxSearch.ScrollBars = System.Windows.Forms.ScrollBars.None;
             this.metroTextBoxSearch.SelectedText = "";
             this.metroTextBoxSearch.SelectionLength = 0;

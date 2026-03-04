@@ -53,6 +53,7 @@
             this.metroLabel1.TabIndex = 1;
             this.metroLabel1.Text = "https://github.com/Fluder512";
             this.metroLabel1.Theme = MetroFramework.MetroThemeStyle.Dark;
+            this.metroLabel1.Click += new System.EventHandler(this.metroLabel1_Click);
             // 
             // FormAbout
             // 

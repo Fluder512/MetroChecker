@@ -114,6 +114,12 @@
     <Compile Include="Forms\FormNetstat.Designer.cs">
       <DependentUpon>FormNetstat.cs</DependentUpon>
     </Compile>
+    <Compile Include="Forms\FormScan.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="Forms\FormScan.Designer.cs">
+      <DependentUpon>FormScan.cs</DependentUpon>
+    </Compile>
     <Compile Include="Forms\FormTaskMgr.cs">
       <SubType>Form</SubType>
     </Compile>
@@ -122,8 +128,10 @@
     </Compile>
     <Compile Include="Program.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
+    <Compile Include="Utility\BotKiller.cs" />
     <Compile Include="Utility\MemReduct.cs" />
     <Compile Include="Utility\MinerSearch.cs" />
+    <Compile Include="Utility\Scanner.cs" />
     <Compile Include="Utility\VCleaner.cs" />
     <EmbeddedResource Include="Form1.resx">
       <DependentUpon>Form1.cs</DependentUpon>
@@ -145,6 +153,9 @@
     </EmbeddedResource>
     <EmbeddedResource Include="Forms\FormNetstat.resx">
       <DependentUpon>FormNetstat.cs</DependentUpon>
+    </EmbeddedResource>
+    <EmbeddedResource Include="Forms\FormScan.resx">
+      <DependentUpon>FormScan.cs</DependentUpon>
     </EmbeddedResource>
     <EmbeddedResource Include="Forms\FormTaskMgr.resx">
       <DependentUpon>FormTaskMgr.cs</DependentUpon>

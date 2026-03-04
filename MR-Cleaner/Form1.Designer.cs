@@ -61,6 +61,8 @@
             this.metroLabel21 = new MetroFramework.Controls.MetroLabel();
             this.metroButton21 = new MetroFramework.Controls.MetroButton();
             this.metroLabel22 = new MetroFramework.Controls.MetroLabel();
+            this.metroButton22 = new MetroFramework.Controls.MetroButton();
+            this.metroLabel23 = new MetroFramework.Controls.MetroLabel();
             this.SuspendLayout();
             // 
             // metroButton1
@@ -515,11 +517,34 @@
             this.metroLabel22.Text = "Сетевые подключения";
             this.metroLabel22.Theme = MetroFramework.MetroThemeStyle.Dark;
             // 
+            // metroButton22
+            // 
+            this.metroButton22.Location = new System.Drawing.Point(858, 368);
+            this.metroButton22.Name = "metroButton22";
+            this.metroButton22.Size = new System.Drawing.Size(131, 38);
+            this.metroButton22.TabIndex = 47;
+            this.metroButton22.Text = "Сканировать";
+            this.metroButton22.Theme = MetroFramework.MetroThemeStyle.Dark;
+            this.metroButton22.UseSelectable = true;
+            this.metroButton22.Click += new System.EventHandler(this.metroButton22_Click);
+            // 
+            // metroLabel23
+            // 
+            this.metroLabel23.AutoSize = true;
+            this.metroLabel23.Location = new System.Drawing.Point(744, 378);
+            this.metroLabel23.Name = "metroLabel23";
+            this.metroLabel23.Size = new System.Drawing.Size(108, 19);
+            this.metroLabel23.TabIndex = 48;
+            this.metroLabel23.Text = "Сканировать ПК";
+            this.metroLabel23.Theme = MetroFramework.MetroThemeStyle.Dark;
+            // 
             // Form1
             // 
             this.AutoScaleDimensions = new System.Drawing.SizeF(6F, 13F);
             this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
             this.ClientSize = new System.Drawing.Size(1012, 569);
+            this.Controls.Add(this.metroLabel23);
+            this.Controls.Add(this.metroButton22);
             this.Controls.Add(this.metroLabel22);
             this.Controls.Add(this.metroButton21);
             this.Controls.Add(this.metroLabel21);
@@ -566,7 +591,7 @@
             this.Icon = ((System.Drawing.Icon)(resources.GetObject("$this.Icon")));
             this.Name = "Form1";
             this.Style = MetroFramework.MetroColorStyle.Red;
-            this.Text = "MetroChecker | Version: 1.0.2";
+            this.Text = "MetroChecker | Version: 1.0.3";
             this.Theme = MetroFramework.MetroThemeStyle.Dark;
             this.Load += new System.EventHandler(this.Form1_Load);
             this.ResumeLayout(false);
@@ -619,5 +644,7 @@
         private MetroFramework.Controls.MetroLabel metroLabel21;
         private MetroFramework.Controls.MetroButton metroButton21;
         private MetroFramework.Controls.MetroLabel metroLabel22;
+        private MetroFramework.Controls.MetroButton metroButton22;
+        private MetroFramework.Controls.MetroLabel metroLabel23;
     }
 }
