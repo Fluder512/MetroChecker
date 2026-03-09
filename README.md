@@ -1,6 +1,6 @@
-Miner Checker taken from: https://github.com/BlendLog/MinerSearch
+Miner Search взят отсюда: https://github.com/BlendLog/MinerSearch
 
-Donate:
+Пожертвования:
 
 XMR: 42us5ASbQCL92rtcsNwDocNPCA4NG5FRvedwfvkuoVqwQtmMUgogPzKFF2cGAB55oV2L6k7ijLByXF9bsnCAuWnw8hzMhv1
 
