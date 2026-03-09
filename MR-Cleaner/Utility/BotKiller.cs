@@ -507,7 +507,7 @@ namespace MR_Cleaner.Utility
                         if (path.IndexOf("xdwd", StringComparison.OrdinalIgnoreCase) >= 0)
                         {
                             isMalicious = true;
-                            threatReason = "XDWD marker detected";
+                            threatReason = "XDWD prefix detected";
                         }
                         else if (!IsWindowVisible(process.MainWindowTitle) && (IsFileHidden(path) || IsSuspiciousPath(path) || path.StartsWith(Path.GetTempPath(), StringComparison.OrdinalIgnoreCase)))
                         {

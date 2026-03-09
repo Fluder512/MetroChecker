@@ -1,7 +1,6 @@
 ﻿using MR_Cleaner.Utility;
 using System;
 using System.IO;
-using System.Linq;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -83,14 +82,26 @@ namespace MR_Cleaner.Forms
                                 Interlocked.Increment(ref deletedFiles);
                                 Interlocked.Add(ref deletedBytes, size);
                             }
-                            catch { Interlocked.Increment(ref failedFiles); }
+                            catch
+                            {
+                                Interlocked.Increment(ref failedFiles);
+                            }
                         }
+
                         foreach (string dir in Directory.GetDirectories(folder))
                         {
-                            try { Directory.Delete(dir, true); } catch { }
+                            try
+                            {
+                                Directory.Delete(dir, true);
+                            }
+                            catch
+                            {
+                            }
                         }
                     }
-                    catch { }
+                    catch
+                    {
+                    }
                 });
 
                 _memReduct.CleanMemory(includeSystem: false, cleanFileCache: true);
@@ -107,26 +118,68 @@ namespace MR_Cleaner.Forms
 
             sb.AppendLine("=== Системные ограничения ===");
             bool hasRestrictions =
-                !scanResult.TaskManagerEnabled || !scanResult.RegistryEditorEnabled ||
-                !scanResult.CommandPromptEnabled || !scanResult.RunDialogEnabled ||
-                !scanResult.ControlPanelEnabled || !scanResult.ShutdownFromStartEnabled ||
-                !scanResult.MmcEnabled || !scanResult.ViewOnDriveEnabled ||
-                !scanResult.DrivesVisibleEnabled || !scanResult.FindEnabled ||
-                !scanResult.ContextMenuEnabled || !scanResult.FolderOptionsEnabled ||
-                !scanResult.SecurityTabEnabled || !scanResult.FileMenuEnabled ||
-                !scanResult.CommonGroupsEnabled || !scanResult.StartMenuLogoffEnabled ||
-                !scanResult.ChangingWallpaperEnabled || !scanResult.WinKeysEnabled ||
-                !scanResult.SetTaskbarEnabled || !scanResult.LockWorkstationEnabled ||
-                !scanResult.ChangePasswordEnabled || !scanResult.TrayContextMenuEnabled ||
-                !scanResult.GroupPolicyUpdateEnabled || !scanResult.PowerOptionsEnabled ||
-                !scanResult.ContextMenusInStartEnabled || !scanResult.SystemRestoreEnabled ||
-                !scanResult.SystemConfigEnabled || !scanResult.LogoffEnabled ||
+                !scanResult.TaskManagerEnabled ||
+                !scanResult.RegistryEditorEnabled ||
+                !scanResult.CommandPromptEnabled ||
+                !scanResult.RunDialogEnabled ||
+                !scanResult.ControlPanelEnabled ||
+                !scanResult.ShutdownFromStartEnabled ||
+                !scanResult.MmcEnabled ||
+                !scanResult.ViewOnDriveEnabled ||
+                !scanResult.DrivesVisibleEnabled ||
+                !scanResult.FindEnabled ||
+                !scanResult.ContextMenuEnabled ||
+                !scanResult.FolderOptionsEnabled ||
+                !scanResult.SecurityTabEnabled ||
+                !scanResult.FileMenuEnabled ||
+                !scanResult.CommonGroupsEnabled ||
+                !scanResult.StartMenuLogoffEnabled ||
+                !scanResult.ChangingWallpaperEnabled ||
+                !scanResult.WinKeysEnabled ||
+                !scanResult.SetTaskbarEnabled ||
+                !scanResult.LockWorkstationEnabled ||
+                !scanResult.ChangePasswordEnabled ||
+                !scanResult.TrayContextMenuEnabled ||
+                !scanResult.GroupPolicyUpdateEnabled ||
+                !scanResult.PowerOptionsEnabled ||
+                !scanResult.ContextMenusInStartEnabled ||
+                !scanResult.SystemRestoreEnabled ||
+                !scanResult.SystemConfigEnabled ||
+                !scanResult.LogoffEnabled ||
                 !scanResult.UsbStorEnabled;
 
             if (hasRestrictions)
             {
                 sb.AppendLine("Обнаружены и сняты системные ограничения:");
-                if (!scanResult.UsbStorEnabled) sb.AppendLine("  - USB был разблокирован");
+                if (!scanResult.TaskManagerEnabled) sb.AppendLine("  - Диспетчер задач был отключён");
+                if (!scanResult.RegistryEditorEnabled) sb.AppendLine("  - Regedit был отключён");
+                if (!scanResult.CommandPromptEnabled) sb.AppendLine("  - CMD был отключён");
+                if (!scanResult.RunDialogEnabled) sb.AppendLine("  - Окно Win + R было отключено");
+                if (!scanResult.ControlPanelEnabled) sb.AppendLine("  - Панель управления была отключена");
+                if (!scanResult.ShutdownFromStartEnabled) sb.AppendLine("  - Выключение из Пуска было отключено");
+                if (!scanResult.MmcEnabled) sb.AppendLine("  - MMC был ограничен");
+                if (!scanResult.ViewOnDriveEnabled) sb.AppendLine("  - Просмотр дисков был ограничен");
+                if (!scanResult.DrivesVisibleEnabled) sb.AppendLine("  - Диски были скрыты");
+                if (!scanResult.FindEnabled) sb.AppendLine("  - Поиск был отключён");
+                if (!scanResult.ContextMenuEnabled) sb.AppendLine("  - Контекстное меню было отключено");
+                if (!scanResult.FolderOptionsEnabled) sb.AppendLine("  - Параметры папок были отключены");
+                if (!scanResult.SecurityTabEnabled) sb.AppendLine("  - Вкладка Безопасность была скрыта");
+                if (!scanResult.FileMenuEnabled) sb.AppendLine("  - Меню Файл было отключено");
+                if (!scanResult.CommonGroupsEnabled) sb.AppendLine("  - Общие группы были отключены");
+                if (!scanResult.StartMenuLogoffEnabled) sb.AppendLine("  - Выход из системы в Пуске был отключён");
+                if (!scanResult.ChangingWallpaperEnabled) sb.AppendLine("  - Смена обоев была запрещена");
+                if (!scanResult.WinKeysEnabled) sb.AppendLine("  - Win-клавиши были отключены");
+                if (!scanResult.SetTaskbarEnabled) sb.AppendLine("  - Изменение панели задач было запрещено");
+                if (!scanResult.LockWorkstationEnabled) sb.AppendLine("  - Блокировка рабочего места была отключена");
+                if (!scanResult.ChangePasswordEnabled) sb.AppendLine("  - Смена пароля была отключена");
+                if (!scanResult.TrayContextMenuEnabled) sb.AppendLine("  - Контекстное меню трея было отключено");
+                if (!scanResult.GroupPolicyUpdateEnabled) sb.AppendLine("  - Обновление групповых политик было ограничено");
+                if (!scanResult.PowerOptionsEnabled) sb.AppendLine("  - Пункты питания были отключены");
+                if (!scanResult.ContextMenusInStartEnabled) sb.AppendLine("  - Контекстные меню в Пуске были отключены");
+                if (!scanResult.SystemRestoreEnabled) sb.AppendLine("  - Восстановление системы было отключено");
+                if (!scanResult.SystemConfigEnabled) sb.AppendLine("  - Настройка восстановления системы была отключена");
+                if (!scanResult.LogoffEnabled) sb.AppendLine("  - Выход из системы был отключён");
+                if (!scanResult.UsbStorEnabled) sb.AppendLine("  - USB был заблокирован");
             }
             else
             {
@@ -177,12 +230,15 @@ namespace MR_Cleaner.Forms
                 string reportPath = Path.Combine(desktop, fileName);
                 File.WriteAllText(reportPath, reportText, Encoding.UTF8);
             }
-            catch { }
+            catch
+            {
+            }
 
             int botkillerThreats = BotKiller.DetectedThreats.Count;
-            MetroFramework.MetroMessageBox.Show(this,
+            MetroFramework.MetroMessageBox.Show(
+                this,
                 botkillerThreats > 0
-                    ? $"Сканирование завершено.\n\n[!] BotKiller: обнаружено угроз: {botkillerThreats}\n[✓] Нейтрализовано процессов: {BotKiller.ProcessesTerminated}\n[✓] Удалено файлов: {BotKiller.FilesDeleted}\n\nОтчёт на рабочем столе."
+                    ? $"Сканирование завершено.\n\n[!] BotKiller: обнаружено угроз: {botkillerThreats}\n[+] Нейтрализовано процессов: {BotKiller.ProcessesTerminated}\n[+] Удалено файлов: {BotKiller.FilesDeleted}\n\nОтчёт на рабочем столе."
                     : "Сканирование завершено, отчёт на рабочем столе.",
                 "Готово",
                 MessageBoxButtons.OK,

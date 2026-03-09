@@ -64,6 +64,7 @@
             this.Controls.Add(this.pictureBox1);
             this.Icon = ((System.Drawing.Icon)(resources.GetObject("$this.Icon")));
             this.Name = "FormAbout";
+            this.Opacity = 0.9D;
             this.Style = MetroFramework.MetroColorStyle.Red;
             this.Text = "Автор";
             this.Theme = MetroFramework.MetroThemeStyle.Dark;

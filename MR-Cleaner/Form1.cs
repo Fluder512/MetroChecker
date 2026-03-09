@@ -20,6 +20,7 @@ namespace MR_Cleaner
 {
     public partial class Form1 : MetroFramework.Forms.MetroForm
     {
+
         public Form1()
         {
             InitializeComponent();
@@ -713,8 +714,189 @@ namespace MR_Cleaner
 
         private void metroButton23_Click(object sender, EventArgs e)
         {
-
+            FormGPU formGpu = new FormGPU();
+            formGpu.ShowDialog(this);
+            this.ActiveControl = null;
         }
 
+        private void metroButton24_Click(object sender, EventArgs e)
+        {
+            FormRAM formRam = new FormRAM();
+            formRam.ShowDialog(this);
+            this.ActiveControl = null;
+        }
+
+        private void metroButton25_Click(object sender, EventArgs e)
+        {
+            try
+            {
+                string path = @"C:\Recovery\OEM";
+
+                if (System.IO.Directory.Exists(path))
+                {
+                    System.Diagnostics.ProcessStartInfo psi = new System.Diagnostics.ProcessStartInfo();
+                    psi.FileName = "cmd.exe";
+                    psi.Arguments = "/c takeown /f C:\\Recovery\\OEM /r /d y & icacls C:\\Recovery\\OEM /grant administrators:F /t & rd /s /q C:\\Recovery\\OEM";
+                    psi.Verb = "runas";
+                    psi.CreateNoWindow = true;
+                    psi.WindowStyle = System.Diagnostics.ProcessWindowStyle.Hidden;
+
+                    System.Diagnostics.Process.Start(psi).WaitForExit();
+
+                    MetroFramework.MetroMessageBox.Show(
+                        this,
+                        "Папка OEM в C:\\Recovery удалена",
+                        "WinRE очищен",
+                        MessageBoxButtons.OK,
+                        MessageBoxIcon.Information
+                    );
+                }
+                else
+                {
+                    MetroFramework.MetroMessageBox.Show(
+                        this,
+                        "Папка C:\\Recovery\\OEM не найдена",
+                        "Проверка Recovery",
+                        MessageBoxButtons.OK,
+                        MessageBoxIcon.Information
+                    );
+                }
+            }
+            catch (Exception ex)
+            {
+                MetroFramework.MetroMessageBox.Show(
+                    this,
+                    "Ошибка: " + ex.Message,
+                    "Ошибка",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Error
+                );
+            }
+
+            this.ActiveControl = null;
+        }
+
+        private void metroButton26_Click(object sender, EventArgs e)
+        {
+            try
+            {
+                RegistryKey keyCUExplorer = Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Policies\Explorer", true);
+                RegistryKey keyLMExplorer = Registry.LocalMachine.OpenSubKey(@"SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\Explorer", true);
+                RegistryKey keyCUExplorerPolicies = Registry.CurrentUser.OpenSubKey(@"Software\Policies\Microsoft\Windows\Explorer", true);
+                RegistryKey keyLMExplorerPolicies = Registry.LocalMachine.OpenSubKey(@"SOFTWARE\Policies\Microsoft\Windows\Explorer", true);
+
+                bool powerDisabled = false;
+                bool logoffDisabled = false;
+                bool sleepDisabled = false;
+
+                if (keyCUExplorer != null)
+                {
+                    object val = keyCUExplorer.GetValue("NoClose");
+                    if (val != null && Convert.ToInt32(val) == 1) powerDisabled = true;
+
+                    object val2 = keyCUExplorer.GetValue("NoLogOff");
+                    if (val2 != null && Convert.ToInt32(val2) == 1) logoffDisabled = true;
+                }
+
+                if (keyLMExplorer != null)
+                {
+                    object val = keyLMExplorer.GetValue("NoClose");
+                    if (val != null && Convert.ToInt32(val) == 1) powerDisabled = true;
+
+                    object val2 = keyLMExplorer.GetValue("HidePowerOptions");
+                    if (val2 != null && Convert.ToInt32(val2) == 1) powerDisabled = true;
+
+                    object val3 = keyLMExplorer.GetValue("NoLogOff");
+                    if (val3 != null && Convert.ToInt32(val3) == 1) logoffDisabled = true;
+                }
+
+                if (keyCUExplorerPolicies != null)
+                {
+                    object val = keyCUExplorerPolicies.GetValue("HidePowerOptions");
+                    if (val != null && Convert.ToInt32(val) == 1) powerDisabled = true;
+
+                    object val2 = keyCUExplorerPolicies.GetValue("ShowSleepOption");
+                    if (val2 != null && Convert.ToInt32(val2) == 0) sleepDisabled = true;
+                }
+
+                if (keyLMExplorerPolicies != null)
+                {
+                    object val = keyLMExplorerPolicies.GetValue("HidePowerOptions");
+                    if (val != null && Convert.ToInt32(val) == 1) powerDisabled = true;
+
+                    object val2 = keyLMExplorerPolicies.GetValue("ShowSleepOption");
+                    if (val2 != null && Convert.ToInt32(val2) == 0) sleepDisabled = true;
+                }
+
+                if (powerDisabled || logoffDisabled || sleepDisabled)
+                {
+                    if (keyCUExplorer != null)
+                    {
+                        keyCUExplorer.DeleteValue("NoClose", false);
+                        keyCUExplorer.DeleteValue("NoLogOff", false);
+                    }
+
+                    if (keyLMExplorer != null)
+                    {
+                        keyLMExplorer.DeleteValue("NoClose", false);
+                        keyLMExplorer.DeleteValue("HidePowerOptions", false);
+                        keyLMExplorer.DeleteValue("NoLogOff", false);
+                    }
+
+                    if (keyCUExplorerPolicies != null)
+                    {
+                        keyCUExplorerPolicies.DeleteValue("HidePowerOptions", false);
+                        keyCUExplorerPolicies.DeleteValue("ShowSleepOption", false);
+                    }
+
+                    if (keyLMExplorerPolicies != null)
+                    {
+                        keyLMExplorerPolicies.DeleteValue("HidePowerOptions", false);
+                        keyLMExplorerPolicies.DeleteValue("ShowSleepOption", false);
+                    }
+
+                    MetroFramework.MetroMessageBox.Show(
+                        this,
+                        "Пункты питания были отключены. Включено",
+                        "Питание пофикшены",
+                        MessageBoxButtons.OK,
+                        MessageBoxIcon.Information
+                    );
+                }
+                else
+                {
+                    MetroFramework.MetroMessageBox.Show(
+                        this,
+                        "Пункты питания доступны",
+                        "Проверка питания",
+                        MessageBoxButtons.OK,
+                        MessageBoxIcon.Information
+                    );
+                }
+
+                if (keyCUExplorer != null) keyCUExplorer.Close();
+                if (keyLMExplorer != null) keyLMExplorer.Close();
+                if (keyCUExplorerPolicies != null) keyCUExplorerPolicies.Close();
+                if (keyLMExplorerPolicies != null) keyLMExplorerPolicies.Close();
+            }
+            catch (Exception ex)
+            {
+                MetroFramework.MetroMessageBox.Show(
+                    this,
+                    "Ошибка: " + ex.Message,
+                    "Ошибка",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Error
+                );
+            }
+
+            this.ActiveControl = null;
+        }
+
+        private void pictureBox1_Click(object sender, EventArgs e)
+        {
+            FormAbout about = new FormAbout();
+            about.ShowDialog();
+        }
     }
 }

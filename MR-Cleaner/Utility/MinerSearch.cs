@@ -17,26 +17,26 @@ namespace MR_Cleaner.Utility
     {
         private static readonly HashSet<int> PortSet = new HashSet<int>
         {
-            1111, 1112, 2020, 3333, 4028, 4040, 4141, 4444, 5555,
-            6633, 6666, 7001, 7777, 9980, 9999, 10191, 10343, 14433, 20009
+            1111,1112,2020,3333,4028,4040,4141,4444,5555,
+            6633,6666,7001,7777,9980,9999,10191,10343,14433,20009
         };
 
         private static readonly HashSet<string> SuspNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         {
-            "xmrig", "minerd", "cpuminer", "ethminer", "claymore", "phoenix",
-            "guiminer", "bfgminer", "cgminer", "nicehash", "nanominer", "lolminer",
-            "teamredminer", "gminer", "t-rex", "nbminer", "kawpowminer", "unmineable",
-            "flexpool", "2miners", "herominers", "minexmr", "xmr-stak", "xmrig-proxy",
-            "xmrig-amd", "xmrig-cuda", "cryptonight", "randomx", "kawpow", "autolykos",
-            "ethash", "progpow", "beamv3", "cuckoo", "cuckaroom", "cuckatoo",
-            "ghostrider", "octopus", "etchash", "ubqhash", "firopow",
-            "kheavyhash", "pyrinhash", "karlsenhash"
+            "xmrig","minerd","cpuminer","ethminer","claymore","phoenix",
+            "guiminer","bfgminer","cgminer","nicehash","nanominer","lolminer",
+            "teamredminer","gminer","t-rex","nbminer","kawpowminer","unmineable",
+            "flexpool","2miners","herominers","minexmr","xmr-stak","xmrig-proxy",
+            "xmrig-amd","xmrig-cuda","cryptonight","randomx","kawpow","autolykos",
+            "ethash","progpow","beamv3","cuckoo","cuckaroom","cuckatoo",
+            "ghostrider","octopus","etchash","ubqhash","firopow",
+            "kheavyhash","pyrinhash","karlsenhash"
         };
 
         private static readonly string[] SuspPaths =
         {
-            "temp", "appdata", "local\\temp", "programdata",
-            "users\\public", "windows\\temp", "recycle.bin"
+            "temp","appdata","local\\temp","programdata",
+            "users\\public","windows\\temp","recycle.bin"
         };
 
         private static readonly string[] StartupKeys =
@@ -73,6 +73,8 @@ namespace MR_Cleaner.Utility
             FoundSuspicious.Clear();
             FoundMiners.AddRange(_minersBag);
             FoundSuspicious.AddRange(_suspBag);
+
+            SaveReportToDesktop();
         }
 
         private void ScanProcesses()
@@ -82,20 +84,20 @@ namespace MR_Cleaner.Utility
             {
                 try
                 {
-                    string name = proc.ProcessName.ToLowerInvariant();
+                    string name = proc.ProcessName;
+                    string lowerName = name.ToLowerInvariant();
+
                     string path = string.Empty;
+                    try { path = proc.MainModule?.FileName?.ToLowerInvariant() ?? string.Empty; } catch { }
 
-                    try { path = proc.MainModule?.FileName?.ToLowerInvariant() ?? string.Empty; }
-                    catch { }
-
-                    if (ContainsSuspName(name) || ContainsSuspName(path))
+                    if (ContainsSuspName(lowerName) || ContainsSuspName(path))
                     {
-                        _minersBag.Add($"Процесс: {proc.ProcessName} (ПИД: {proc.Id}) - {path}");
+                        _minersBag.Add($"Процесс: {name} (PID: {proc.Id}) - {path}");
                         return;
                     }
 
                     if (IsRunningFromSuspiciousPath(path))
-                        _suspBag.Add($"Подозрительный путь: {proc.ProcessName} - {path}");
+                        _suspBag.Add($"Подозрительный путь: {name} - {path}");
                 }
                 catch { }
                 finally { try { proc.Dispose(); } catch { } }
@@ -124,13 +126,14 @@ namespace MR_Cleaner.Utility
                 {
                     try
                     {
-                        string name = svc.ServiceName.ToLowerInvariant();
-                        string path = GetServiceImagePath(svc.ServiceName)?.ToLowerInvariant() ?? string.Empty;
+                        string name = svc.ServiceName;
+                        string lower = name.ToLowerInvariant();
+                        string path = GetServiceImagePath(name)?.ToLowerInvariant() ?? string.Empty;
 
-                        if (ContainsSuspName(name) || ContainsSuspName(path))
-                            _minersBag.Add($"Сервис: {svc.ServiceName} - {path}");
+                        if (ContainsSuspName(lower) || ContainsSuspName(path))
+                            _minersBag.Add($"Сервис: {name} - {path}");
                         else if (IsRunningFromSuspiciousPath(path))
-                            _suspBag.Add($"Подозрительный сервис: {svc.ServiceName} - {path}");
+                            _suspBag.Add($"Подозрительный сервис: {name} - {path}");
                     }
                     catch { }
                 }
@@ -229,15 +232,13 @@ namespace MR_Cleaner.Utility
         private static bool ContainsSuspName(string input)
         {
             if (string.IsNullOrEmpty(input)) return false;
-            string lower = input.ToLowerInvariant();
-            return SuspNames.Any(s => lower.Contains(s));
+            return SuspNames.Any(s => input.Contains(s));
         }
 
         private static bool IsRunningFromSuspiciousPath(string path)
         {
             if (string.IsNullOrEmpty(path)) return false;
-            string lower = path.ToLowerInvariant();
-            return SuspPaths.Any(s => lower.Contains(s));
+            return SuspPaths.Any(s => path.Contains(s));
         }
 
         private static string GetServiceImagePath(string serviceName)
@@ -252,32 +253,42 @@ namespace MR_Cleaner.Utility
             catch { return null; }
         }
 
+        private void SaveReportToDesktop()
+        {
+            string desktop = Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory);
+            string fileName = $"MetroMinerSearch_{DateTime.Now:dd-MM-yyyy_HH-mm}.txt";
+            string fullPath = Path.Combine(desktop, fileName);
+
+            File.WriteAllText(fullPath, GetReport(), Encoding.UTF8);
+        }
+
         public string GetReport()
         {
             var sb = new StringBuilder();
-            sb.AppendLine("=== Miner Search ===");
-            sb.AppendLine($"Время: {DateTime.Now}");
+            sb.AppendLine("=== Metro Miner Search Report ===");
+            sb.AppendLine($"Дата: {DateTime.Now}");
             sb.AppendLine();
 
             if (FoundMiners.Count > 0)
             {
-                sb.AppendLine("[!!!] Найдено майнеров:");
+                sb.AppendLine("[!!!] Найдены майнеры:");
                 foreach (var m in FoundMiners) sb.AppendLine($"  - {m}");
                 sb.AppendLine();
             }
 
             if (FoundSuspicious.Count > 0)
             {
-                sb.AppendLine("[!!] Подозрительные процессы:");
+                sb.AppendLine("[!!] Подозрительные элементы:");
                 foreach (var s in FoundSuspicious) sb.AppendLine($"  - {s}");
                 sb.AppendLine();
             }
 
             if (FoundMiners.Count == 0 && FoundSuspicious.Count == 0)
-                sb.AppendLine("[OK] Всё ок.");
+                sb.AppendLine("[OK] Угроз не обнаружено.");
 
             sb.AppendLine($"Всего майнеров: {FoundMiners.Count}");
             sb.AppendLine($"Всего подозрительных: {FoundSuspicious.Count}");
+
             return sb.ToString();
         }
     }

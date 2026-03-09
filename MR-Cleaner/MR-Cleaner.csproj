@@ -55,10 +55,12 @@
     <Reference Include="MetroFramework.Fonts, Version=1.4.0.0, Culture=neutral, PublicKeyToken=5f91a84759bf584a, processorArchitecture=MSIL">
       <HintPath>..\packages\MetroModernUI.1.4.0.0\lib\net\MetroFramework.Fonts.dll</HintPath>
     </Reference>
+    <Reference Include="Microsoft.VisualBasic" />
     <Reference Include="System" />
     <Reference Include="System.Core" />
     <Reference Include="System.Design" />
     <Reference Include="System.Management" />
+    <Reference Include="System.Security" />
     <Reference Include="System.ServiceProcess" />
     <Reference Include="System.Web" />
     <Reference Include="System.Xml.Linq" />
@@ -102,6 +104,12 @@
     <Compile Include="Forms\FormCPU.Designer.cs">
       <DependentUpon>FormCPU.cs</DependentUpon>
     </Compile>
+    <Compile Include="Forms\FormGPU.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="Forms\FormGPU.Designer.cs">
+      <DependentUpon>FormGPU.cs</DependentUpon>
+    </Compile>
     <Compile Include="Forms\FormMBR.cs">
       <SubType>Form</SubType>
     </Compile>
@@ -113,6 +121,12 @@
     </Compile>
     <Compile Include="Forms\FormNetstat.Designer.cs">
       <DependentUpon>FormNetstat.cs</DependentUpon>
+    </Compile>
+    <Compile Include="Forms\FormRAM.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="Forms\FormRAM.Designer.cs">
+      <DependentUpon>FormRAM.cs</DependentUpon>
     </Compile>
     <Compile Include="Forms\FormScan.cs">
       <SubType>Form</SubType>
@@ -148,11 +162,17 @@
     <EmbeddedResource Include="Forms\FormCPU.resx">
       <DependentUpon>FormCPU.cs</DependentUpon>
     </EmbeddedResource>
+    <EmbeddedResource Include="Forms\FormGPU.resx">
+      <DependentUpon>FormGPU.cs</DependentUpon>
+    </EmbeddedResource>
     <EmbeddedResource Include="Forms\FormMBR.resx">
       <DependentUpon>FormMBR.cs</DependentUpon>
     </EmbeddedResource>
     <EmbeddedResource Include="Forms\FormNetstat.resx">
       <DependentUpon>FormNetstat.cs</DependentUpon>
+    </EmbeddedResource>
+    <EmbeddedResource Include="Forms\FormRAM.resx">
+      <DependentUpon>FormRAM.cs</DependentUpon>
     </EmbeddedResource>
     <EmbeddedResource Include="Forms\FormScan.resx">
       <DependentUpon>FormScan.cs</DependentUpon>

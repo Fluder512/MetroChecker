@@ -116,6 +116,7 @@
             this.Controls.Add(this.autoRunList);
             this.Icon = ((System.Drawing.Icon)(resources.GetObject("$this.Icon")));
             this.Name = "FormAutoRun";
+            this.Opacity = 0.9D;
             this.Style = MetroFramework.MetroColorStyle.Red;
             this.Text = "Автозагрузка";
             this.Theme = MetroFramework.MetroThemeStyle.Dark;

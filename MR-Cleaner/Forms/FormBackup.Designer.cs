@@ -66,6 +66,7 @@
             this.Controls.Add(this.metroLabel1);
             this.Icon = ((System.Drawing.Icon)(resources.GetObject("$this.Icon")));
             this.Name = "FormBackup";
+            this.Opacity = 0.9D;
             this.Style = MetroFramework.MetroColorStyle.Red;
             this.Text = "Backup Диска";
             this.Theme = MetroFramework.MetroThemeStyle.Dark;

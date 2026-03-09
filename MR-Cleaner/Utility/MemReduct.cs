@@ -1,5 +1,5 @@
 ﻿using System;
-using System.Collections.Concurrent;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Text;
@@ -8,7 +8,7 @@ using System.Threading.Tasks;
 
 namespace MR_Cleaner.Utility
 {
-    internal class MemReduct
+    internal sealed class MemReduct
     {
         [DllImport("psapi.dll", SetLastError = true)]
         private static extern bool EmptyWorkingSet(IntPtr hProcess);
@@ -16,32 +16,32 @@ namespace MR_Cleaner.Utility
         [DllImport("kernel32.dll", SetLastError = true)]
         private static extern bool SetProcessWorkingSetSize(IntPtr hProcess, IntPtr dwMinimumWorkingSetSize, IntPtr dwMaximumWorkingSetSize);
 
-        [DllImport("kernel32.dll")]
+        [DllImport("kernel32.dll", SetLastError = true)]
         private static extern bool SetSystemFileCacheSize(IntPtr MinimumFileCacheSize, IntPtr MaximumFileCacheSize, uint Flags);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        private static extern IntPtr OpenProcess(uint dwDesiredAccess, bool bInheritHandle, int dwProcessId);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        private static extern bool CloseHandle(IntPtr hObject);
 
         [DllImport("kernel32.dll")]
         private static extern IntPtr GetCurrentProcess();
 
+        [DllImport("kernel32.dll", SetLastError = true)]
+        private static extern bool GlobalMemoryStatusEx(ref MEMORYSTATUSEX lpBuffer);
+
         [DllImport("advapi32.dll", SetLastError = true)]
         private static extern bool OpenProcessToken(IntPtr ProcessHandle, uint DesiredAccess, out IntPtr TokenHandle);
 
-        [DllImport("advapi32.dll", SetLastError = true)]
+        [DllImport("advapi32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
         private static extern bool LookupPrivilegeValue(string lpSystemName, string lpName, out LUID lpLuid);
 
         [DllImport("advapi32.dll", SetLastError = true)]
         private static extern bool AdjustTokenPrivileges(IntPtr TokenHandle, bool DisableAllPrivileges, ref TOKEN_PRIVILEGES NewState, uint BufferLength, IntPtr PreviousState, IntPtr ReturnLength);
 
-        [DllImport("kernel32.dll", SetLastError = true)]
-        private static extern bool CloseHandle(IntPtr hObject);
-
-        [DllImport("kernel32.dll", SetLastError = true)]
-        private static extern bool GlobalMemoryStatusEx(ref MEMORYSTATUSEX lpBuffer);
-
         [DllImport("ntdll.dll")]
         private static extern uint NtSetSystemInformation(int SystemInformationClass, IntPtr SystemInformation, int SystemInformationLength);
-
-        [DllImport("kernel32.dll", SetLastError = true)]
-        private static extern bool OpenProcess(uint dwDesiredAccess, bool bInheritHandle, int dwProcessId);
 
         [StructLayout(LayoutKind.Sequential)]
         private struct MEMORYSTATUSEX
@@ -78,186 +78,106 @@ namespace MR_Cleaner.Utility
             public LUID_AND_ATTRIBUTES Privileges;
         }
 
-        private const uint TOKEN_ADJUST_PRIVILEGES = 0x0020;
-        private const uint TOKEN_QUERY = 0x0008;
-        private const uint SE_PRIVILEGE_ENABLED = 0x0002;
-        private const int SystemMemoryListInformation = 80;
-        private const int MemoryPurgeStandbyList = 4;
-        private const int MemoryFlushModifiedList = 3;
+        private const uint TOKEN_ADJUST_PRIVILEGES = 0x20;
+        private const uint TOKEN_QUERY = 0x08;
+        private const uint SE_PRIVILEGE_ENABLED = 0x02;
 
-        private static readonly string[] SystemProcessNames =
+        private const uint PROCESS_QUERY_INFORMATION = 0x0400;
+        private const uint PROCESS_SET_QUOTA = 0x0100;
+        private const uint PROCESS_VM_READ = 0x0010;
+        private const uint PROCESS_QUERY_LIMITED_INFORMATION = 0x1000;
+
+        private const int SystemMemoryListInformation = 80;
+        private const int MemoryCaptureAccessedBits = 1;
+        private const int MemoryFlushModifiedList = 3;
+        private const int MemoryPurgeStandbyList = 4;
+        private const int MemoryPurgeLowPriorityStandbyList = 5;
+        private const int MemoryCombineLists = 6;
+
+        private const uint FILE_CACHE_MAX_HARD_ENABLE = 0x00000001;
+        private const uint FILE_CACHE_MIN_HARD_ENABLE = 0x00000002;
+
+        private static readonly HashSet<string> SystemProcesses = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         {
-            "system", "idle", "smss", "csrss", "wininit", "winlogon",
-            "services", "lsass", "lsm", "svchost", "dwm"
+            "system",
+            "idle",
+            "smss",
+            "csrss",
+            "wininit",
+            "winlogon",
+            "services",
+            "lsass",
+            "lsm",
+            "svchost",
+            "dwm",
+            "registry",
+            "fontdrvhost",
+            "memory compression",
+            "searchindexer"
         };
 
         private int _trimmedCount;
         private int _failedCount;
-        private long _beforeMb;
-        private long _afterMb;
+        private long _usedBeforeMb;
+        private long _usedAfterMb;
+        private long _availableBeforeMb;
+        private long _availableAfterMb;
 
-        public void CleanMemory(bool includeSystem = false, bool cleanFileCache = false)
+        public void CleanMemory(bool includeSystem = false, bool cleanFileCache = true)
         {
             _trimmedCount = 0;
             _failedCount = 0;
-            _beforeMb = GetUsedMemoryMb();
 
-            TrimAllProcesses(includeSystem);
+            ReadMemorySnapshot(out _usedBeforeMb, out _availableBeforeMb);
 
-            ForceGarbageCollection();
-
-            if (cleanFileCache)
-                TryCleanFileCache();
-
-            TryPurgeStandbyList();
-
-            _afterMb = GetUsedMemoryMb();
-        }
-
-        private void ForceGarbageCollection()
-        {
-            for (int i = 0; i < 2; i++)
-            {
-                GC.Collect(GC.MaxGeneration, GCCollectionMode.Forced, true, true);
-                GC.WaitForPendingFinalizers();
-            }
-
-            SetProcessWorkingSetSize(GetCurrentProcess(), new IntPtr(-1), new IntPtr(-1));
-        }
-
-        private void TrimAllProcesses(bool includeSystem)
-        {
-            Process[] processes;
-            try
-            {
-                processes = Process.GetProcesses();
-            }
-            catch
-            {
-                return;
-            }
-
-            int currentPid = Process.GetCurrentProcess().Id;
-            var options = new ParallelOptions
-            {
-                MaxDegreeOfParallelism = Math.Max(1, Environment.ProcessorCount - 1)
-            };
-
-            Parallel.ForEach(processes, options, process =>
-            {
-                try
-                {
-                    TrimProcess(process, includeSystem, currentPid);
-                }
-                catch { }
-                finally
-                {
-                    try { process.Dispose(); } catch { }
-                }
-            });
-        }
-
-        private void TrimProcess(Process process, bool includeSystem, int currentPid)
-        {
-            try
-            {
-                if (process.Id == currentPid)
-                    return;
-
-                if (process.Id <= 4)
-                    return;
-
-                if (!includeSystem)
-                {
-                    try
-                    {
-                        if (process.SessionId == 0)
-                            return;
-                    }
-                    catch
-                    {
-                        return;
-                    }
-
-                    string name;
-                    try { name = process.ProcessName?.ToLowerInvariant(); }
-                    catch { return; }
-
-                    if (IsSystemProcess(name))
-                        return;
-                }
-
-                bool success = TryTrimProcess(process.Handle);
-
-                if (success)
-                    Interlocked.Increment(ref _trimmedCount);
-                else
-                    Interlocked.Increment(ref _failedCount);
-            }
-            catch
-            {
-                Interlocked.Increment(ref _failedCount);
-            }
-        }
-
-        private bool TryTrimProcess(IntPtr handle)
-        {
-            try
-            {
-                if (EmptyWorkingSet(handle))
-                    return true;
-            }
-            catch { }
-
-            try
-            {
-                SetProcessWorkingSetSize(handle, new IntPtr(-1), new IntPtr(-1));
-                return true;
-            }
-            catch { }
-
-            return false;
-        }
-
-        private bool IsSystemProcess(string name)
-        {
-            if (string.IsNullOrEmpty(name))
-                return true;
-
-            foreach (var sys in SystemProcessNames)
-            {
-                if (name == sys)
-                    return true;
-            }
-
-            return false;
-        }
-
-        private void TryCleanFileCache()
-        {
             IntPtr token = IntPtr.Zero;
             try
             {
-                if (!OpenProcessToken(GetCurrentProcess(), TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY, out token))
-                    return;
+                token = OpenPrivileges();
+                if (token != IntPtr.Zero)
+                {
+                    EnablePrivilege(token, "SeDebugPrivilege");
+                    EnablePrivilege(token, "SeIncreaseQuotaPrivilege");
+                    EnablePrivilege(token, "SeProfileSingleProcessPrivilege");
+                }
 
-                EnablePrivilege(token, "SeIncreaseQuotaPrivilege");
-                EnablePrivilege(token, "SeProfileSingleProcessPrivilege");
+                ForceGarbageCollection();
 
-                SetSystemFileCacheSize(new IntPtr(-1), new IntPtr(-1), 0);
+                TrimAllProcesses(includeSystem, 2);
+
+                ForceGarbageCollection();
+
+                if (cleanFileCache)
+                    TryCleanFileCache();
+
+                TryPurgeMemoryLists(2);
+
+                ForceGarbageCollection();
+                TrimCurrentProcess();
             }
-            catch { }
             finally
             {
                 if (token != IntPtr.Zero)
-                    try { CloseHandle(token); } catch { }
+                    CloseHandle(token);
             }
+
+            ReadMemorySnapshot(out _usedAfterMb, out _availableAfterMb);
         }
 
-        private void EnablePrivilege(IntPtr token, string privilegeName)
+        private static IntPtr OpenPrivileges()
         {
-            if (!LookupPrivilegeValue(null, privilegeName, out LUID luid))
-                return;
+            return OpenProcessToken(GetCurrentProcess(), TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY, out IntPtr token)
+                ? token
+                : IntPtr.Zero;
+        }
+
+        private static bool EnablePrivilege(IntPtr token, string name)
+        {
+            if (token == IntPtr.Zero)
+                return false;
+
+            if (!LookupPrivilegeValue(null, name, out LUID luid))
+                return false;
 
             var tp = new TOKEN_PRIVILEGES
             {
@@ -269,65 +189,259 @@ namespace MR_Cleaner.Utility
                 }
             };
 
-            AdjustTokenPrivileges(token, false, ref tp, 0, IntPtr.Zero, IntPtr.Zero);
+            return AdjustTokenPrivileges(token, false, ref tp, 0, IntPtr.Zero, IntPtr.Zero);
         }
 
-        private void TryPurgeStandbyList()
+        private void ForceGarbageCollection()
         {
-            IntPtr token = IntPtr.Zero;
-            try
+            GCSettingsHelper.CompactLargeObjectHeapOnce();
+            GC.Collect(GC.MaxGeneration, GCCollectionMode.Forced, true, true);
+            GC.WaitForPendingFinalizers();
+            GCSettingsHelper.CompactLargeObjectHeapOnce();
+            GC.Collect(GC.MaxGeneration, GCCollectionMode.Forced, true, true);
+            TrimCurrentProcess();
+        }
+
+        private void TrimCurrentProcess()
+        {
+            IntPtr current = GetCurrentProcess();
+            TryTrimHandle(current);
+        }
+
+        private void TrimAllProcesses(bool includeSystem, int passes)
+        {
+            for (int pass = 0; pass < passes; pass++)
             {
-                if (!OpenProcessToken(GetCurrentProcess(), TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY, out token))
+                Process[] processes;
+                try
+                {
+                    processes = Process.GetProcesses();
+                }
+                catch
+                {
                     return;
+                }
 
-                EnablePrivilege(token, "SeProfileSingleProcessPrivilege");
+                int currentPid = Process.GetCurrentProcess().Id;
+                int maxParallelism = Math.Max(1, Environment.ProcessorCount);
 
-                var commandFlush = MemoryFlushModifiedList;
-                var ptrFlush = Marshal.AllocHGlobal(sizeof(int));
-                Marshal.WriteInt32(ptrFlush, commandFlush);
-                NtSetSystemInformation(SystemMemoryListInformation, ptrFlush, sizeof(int));
-                Marshal.FreeHGlobal(ptrFlush);
-
-                var commandPurge = MemoryPurgeStandbyList;
-                var ptrPurge = Marshal.AllocHGlobal(sizeof(int));
-                Marshal.WriteInt32(ptrPurge, commandPurge);
-                NtSetSystemInformation(SystemMemoryListInformation, ptrPurge, sizeof(int));
-                Marshal.FreeHGlobal(ptrPurge);
-            }
-            catch { }
-            finally
-            {
-                if (token != IntPtr.Zero)
-                    try { CloseHandle(token); } catch { }
+                Parallel.ForEach(
+                    processes,
+                    new ParallelOptions { MaxDegreeOfParallelism = maxParallelism },
+                    process =>
+                    {
+                        try
+                        {
+                            if (!process.HasExited)
+                                TrimProcess(process, includeSystem, currentPid);
+                        }
+                        catch
+                        {
+                            Interlocked.Increment(ref _failedCount);
+                        }
+                        finally
+                        {
+                            try
+                            {
+                                process.Dispose();
+                            }
+                            catch
+                            {
+                            }
+                        }
+                    });
             }
         }
 
-        private long GetUsedMemoryMb()
+        private void TrimProcess(Process process, bool includeSystem, int currentPid)
         {
+            int pid;
             try
             {
-                var status = new MEMORYSTATUSEX();
-                status.dwLength = (uint)Marshal.SizeOf<MEMORYSTATUSEX>();
-                if (GlobalMemoryStatusEx(ref status))
-                    return (long)((status.ullTotalPhys - status.ullAvailPhys) / 1024 / 1024);
-                return 0;
+                pid = process.Id;
             }
             catch
             {
-                return 0;
+                Interlocked.Increment(ref _failedCount);
+                return;
             }
+
+            if (pid == currentPid || pid <= 4)
+                return;
+
+            if (!includeSystem)
+            {
+                try
+                {
+                    if (process.SessionId == 0)
+                        return;
+                }
+                catch
+                {
+                    return;
+                }
+
+                string name;
+                try
+                {
+                    name = process.ProcessName;
+                }
+                catch
+                {
+                    return;
+                }
+
+                if (SystemProcesses.Contains(name))
+                    return;
+            }
+
+            IntPtr handle = IntPtr.Zero;
+            try
+            {
+                handle = OpenProcess(PROCESS_SET_QUOTA | PROCESS_QUERY_INFORMATION | PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_VM_READ, false, pid);
+                if (handle == IntPtr.Zero)
+                {
+                    Interlocked.Increment(ref _failedCount);
+                    return;
+                }
+
+                if (TryTrimHandle(handle))
+                    Interlocked.Increment(ref _trimmedCount);
+                else
+                    Interlocked.Increment(ref _failedCount);
+            }
+            finally
+            {
+                if (handle != IntPtr.Zero)
+                    CloseHandle(handle);
+            }
+        }
+
+        private static bool TryTrimHandle(IntPtr handle)
+        {
+            if (handle == IntPtr.Zero)
+                return false;
+
+            bool ok = false;
+
+            try
+            {
+                if (SetProcessWorkingSetSize(handle, new IntPtr(-1), new IntPtr(-1)))
+                    ok = true;
+            }
+            catch
+            {
+            }
+
+            try
+            {
+                if (EmptyWorkingSet(handle))
+                    ok = true;
+            }
+            catch
+            {
+            }
+
+            try
+            {
+                if (SetProcessWorkingSetSize(handle, new IntPtr(-1), new IntPtr(-1)))
+                    ok = true;
+            }
+            catch
+            {
+            }
+
+            return ok;
+        }
+
+        private void TryCleanFileCache()
+        {
+            try
+            {
+                SetSystemFileCacheSize(IntPtr.Zero, IntPtr.Zero, FILE_CACHE_MIN_HARD_ENABLE | FILE_CACHE_MAX_HARD_ENABLE);
+            }
+            catch { }
+
+            try
+            {
+                SetSystemFileCacheSize(new IntPtr(-1), new IntPtr(-1), 0);
+            }
+            catch { }
+        }
+
+        private void TryPurgeMemoryLists(int rounds)
+        {
+            for (int i = 0; i < rounds; i++)
+            {
+                PurgeList(MemoryCaptureAccessedBits);
+                PurgeList(MemoryFlushModifiedList);
+                PurgeList(MemoryPurgeStandbyList);
+                PurgeList(MemoryPurgeLowPriorityStandbyList);
+                PurgeList(MemoryCombineLists);
+            }
+        }
+
+        private static void PurgeList(int command)
+        {
+            IntPtr ptr = IntPtr.Zero;
+            try
+            {
+                ptr = Marshal.AllocHGlobal(sizeof(int));
+                Marshal.WriteInt32(ptr, command);
+                NtSetSystemInformation(SystemMemoryListInformation, ptr, sizeof(int));
+            }
+            finally
+            {
+                if (ptr != IntPtr.Zero)
+                    Marshal.FreeHGlobal(ptr);
+            }
+        }
+
+        private static void ReadMemorySnapshot(out long usedMb, out long availableMb)
+        {
+            var state = new MEMORYSTATUSEX
+            {
+                dwLength = (uint)Marshal.SizeOf<MEMORYSTATUSEX>()
+            };
+
+            if (GlobalMemoryStatusEx(ref state))
+            {
+                usedMb = (long)((state.ullTotalPhys - state.ullAvailPhys) >> 20);
+                availableMb = (long)(state.ullAvailPhys >> 20);
+                return;
+            }
+
+            usedMb = 0;
+            availableMb = 0;
         }
 
         public string GetSummary()
         {
-            long freed = Math.Max(0, _beforeMb - _afterMb);
+            long freedUsedMb = Math.Max(0, _usedBeforeMb - _usedAfterMb);
+            long gainedAvailableMb = Math.Max(0, _availableAfterMb - _availableBeforeMb);
+
             var sb = new StringBuilder();
             sb.AppendLine($"Обработано процессов: {_trimmedCount}");
             sb.AppendLine($"Не удалось обработать: {_failedCount}");
-            sb.AppendLine($"Память до очистки: {_beforeMb} MB");
-            sb.AppendLine($"Память после очистки: {_afterMb} MB");
-            sb.AppendLine($"Освобождено: ~{freed} MB");
+            sb.AppendLine($"Использовалось до очистки: {_usedBeforeMb} MB");
+            sb.AppendLine($"Использовалось после очистки: {_usedAfterMb} MB");
+            sb.AppendLine($"Доступно до очистки: {_availableBeforeMb} MB");
+            sb.AppendLine($"Доступно после очистки: {_availableAfterMb} MB");
             return sb.ToString();
+        }
+
+        private static class GCSettingsHelper
+        {
+            public static void CompactLargeObjectHeapOnce()
+            {
+                try
+                {
+                    System.Runtime.GCSettings.LargeObjectHeapCompactionMode = System.Runtime.GCLargeObjectHeapCompactionMode.CompactOnce;
+                }
+                catch
+                {
+                }
+            }
         }
     }
 }

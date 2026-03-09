@@ -41,6 +41,7 @@
             this.Controls.Add(this.totalLabel);
             this.Icon = ((System.Drawing.Icon)(resources.GetObject("$this.Icon")));
             this.Name = "FormCPU";
+            this.Opacity = 0.9D;
             this.Style = MetroFramework.MetroColorStyle.Red;
             this.Text = "Проверка нагрузки ЦП";
             this.Theme = MetroFramework.MetroThemeStyle.Dark;

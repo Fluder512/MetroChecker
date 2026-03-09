@@ -29,6 +29,7 @@
             this.metroButton1.TabIndex = 0;
             this.metroButton1.Text = "Сканировать";
             this.metroButton1.Theme = MetroFramework.MetroThemeStyle.Dark;
+            this.metroButton1.UseSelectable = true;
             this.metroButton1.Click += new System.EventHandler(this.metroButton1_Click);
             // 
             // metroProgressBar1
@@ -49,6 +50,7 @@
             this.Controls.Add(this.metroButton1);
             this.Icon = ((System.Drawing.Icon)(resources.GetObject("$this.Icon")));
             this.Name = "FormScan";
+            this.Opacity = 0.9D;
             this.Style = MetroFramework.MetroColorStyle.Red;
             this.Text = "Сканер ПК";
             this.Theme = MetroFramework.MetroThemeStyle.Dark;

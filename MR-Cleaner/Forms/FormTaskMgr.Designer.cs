@@ -104,6 +104,7 @@
             this.metroTextBoxSearch.MaxLength = 32767;
             this.metroTextBoxSearch.Name = "metroTextBoxSearch";
             this.metroTextBoxSearch.PasswordChar = '\0';
+            this.metroTextBoxSearch.PromptText = "Поиск процесса...";
             this.metroTextBoxSearch.ScrollBars = System.Windows.Forms.ScrollBars.None;
             this.metroTextBoxSearch.SelectedText = "";
             this.metroTextBoxSearch.SelectionLength = 0;
@@ -113,6 +114,7 @@
             this.metroTextBoxSearch.Style = MetroFramework.MetroColorStyle.Red;
             this.metroTextBoxSearch.TabIndex = 1;
             this.metroTextBoxSearch.Theme = MetroFramework.MetroThemeStyle.Dark;
+            this.metroTextBoxSearch.UseSelectable = true;
             this.metroTextBoxSearch.UseStyleColors = true;
             this.metroTextBoxSearch.WaterMark = "Поиск процесса...";
             this.metroTextBoxSearch.WaterMarkColor = System.Drawing.Color.FromArgb(((int)(((byte)(109)))), ((int)(((byte)(109)))), ((int)(((byte)(109)))));
@@ -125,6 +127,7 @@
             this.Controls.Add(this.metroListView1);
             this.Icon = ((System.Drawing.Icon)(resources.GetObject("$this.Icon")));
             this.Name = "FormTaskMgr";
+            this.Opacity = 0.9D;
             this.Style = MetroFramework.MetroColorStyle.Red;
             this.Text = "Диспетчер задач";
             this.Theme = MetroFramework.MetroThemeStyle.Dark;
