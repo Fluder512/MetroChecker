@@ -18,6 +18,7 @@
 
         private void InitializeComponent()
         {
+            System.ComponentModel.ComponentResourceManager resources = new System.ComponentModel.ComponentResourceManager(typeof(FormGPU));
             this.gpuLabel = new MetroFramework.Controls.MetroLabel();
             this.enginesPanel = new System.Windows.Forms.Panel();
             this.SuspendLayout();
@@ -52,6 +53,7 @@
             this.ClientSize = new System.Drawing.Size(630, 670);
             this.Controls.Add(this.enginesPanel);
             this.Controls.Add(this.gpuLabel);
+            this.Icon = ((System.Drawing.Icon)(resources.GetObject("$this.Icon")));
             this.MaximizeBox = false;
             this.MinimizeBox = false;
             this.Name = "FormGPU";

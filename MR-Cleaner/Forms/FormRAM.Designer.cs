@@ -20,6 +20,7 @@
 
         private void InitializeComponent()
         {
+            System.ComponentModel.ComponentResourceManager resources = new System.ComponentModel.ComponentResourceManager(typeof(FormRAM));
             this.ramLabel = new MetroFramework.Controls.MetroLabel();
             this.usedMbLabel = new MetroFramework.Controls.MetroLabel();
             this.totalMbLabel = new MetroFramework.Controls.MetroLabel();
@@ -34,7 +35,7 @@
             this.ramLabel.ForeColor = System.Drawing.Color.White;
             this.ramLabel.Location = new System.Drawing.Point(23, 60);
             this.ramLabel.Name = "ramLabel";
-            this.ramLabel.Size = new System.Drawing.Size(211, 25);
+            this.ramLabel.Size = new System.Drawing.Size(232, 25);
             this.ramLabel.TabIndex = 0;
             this.ramLabel.Text = "Общая нагрузка ОЗУ: 0%";
             this.ramLabel.Theme = MetroFramework.MetroThemeStyle.Dark;
@@ -46,7 +47,7 @@
             this.usedMbLabel.ForeColor = System.Drawing.Color.White;
             this.usedMbLabel.Location = new System.Drawing.Point(23, 105);
             this.usedMbLabel.Name = "usedMbLabel";
-            this.usedMbLabel.Size = new System.Drawing.Size(223, 19);
+            this.usedMbLabel.Size = new System.Drawing.Size(241, 19);
             this.usedMbLabel.TabIndex = 1;
             this.usedMbLabel.Text = "Используется: 0 MB | Свободно: 0 MB";
             this.usedMbLabel.Theme = MetroFramework.MetroThemeStyle.Dark;
@@ -58,7 +59,7 @@
             this.totalMbLabel.ForeColor = System.Drawing.Color.White;
             this.totalMbLabel.Location = new System.Drawing.Point(23, 132);
             this.totalMbLabel.Name = "totalMbLabel";
-            this.totalMbLabel.Size = new System.Drawing.Size(150, 19);
+            this.totalMbLabel.Size = new System.Drawing.Size(129, 19);
             this.totalMbLabel.TabIndex = 2;
             this.totalMbLabel.Text = "Всего памяти: 0 MB";
             this.totalMbLabel.Theme = MetroFramework.MetroThemeStyle.Dark;
@@ -85,6 +86,7 @@
             this.Controls.Add(this.totalMbLabel);
             this.Controls.Add(this.usedMbLabel);
             this.Controls.Add(this.ramLabel);
+            this.Icon = ((System.Drawing.Icon)(resources.GetObject("$this.Icon")));
             this.MaximizeBox = false;
             this.MinimizeBox = false;
             this.Name = "FormRAM";
@@ -96,6 +98,7 @@
             this.Load += new System.EventHandler(this.FormRAM_Load);
             this.ResumeLayout(false);
             this.PerformLayout();
+
         }
     }
 }

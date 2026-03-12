@@ -874,7 +874,7 @@ namespace MR_Cleaner.Utility
             }
         }
 
-        private static int CountExecutablePrivateRegions(IntPtr hProcess, int stopAfter)
+        private static int CountExecutablePrivateRegions(IntPtr hProcess, int stopAfter) // регионы чекает у файла
         {
             IntPtr address = IntPtr.Zero;
             int found = 0;
